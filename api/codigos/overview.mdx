@@ -11,6 +11,7 @@ The Codigos Service provides methods to interact with Bolivia's SIAT (Tax Admini
 - **CUFD** (Código Único de Facturación Diaria) - Daily invoicing codes
 - **NIT Verification** - Tax identification number validation
 - **Certificate Management** - Revoked certificate notifications
+- **Communication Verification** - Test connectivity to SIAT services
 
 ## Service Methods
 
@@ -30,6 +31,27 @@ The Codigos service is accessed through the `client.Codigos` namespace and provi
     Notify revoked digital certificates
   </Card>
 </CardGroup>
+
+## Additional Methods
+
+### VerificarComunicacion
+
+Test the connectivity to SIAT's Codigos service. This method requires no request body.
+
+```go
+// Create verification request
+verificacion := models.Codigos.NewVerificarComunicacionCodigos()
+
+// Call the service
+resp, err := client.Codigos.VerificarComunicacion(ctx, config, verificacion)
+if err != nil {
+    log.Fatalf("Communication error: %v", err)
+}
+
+if resp.Body.Content.Transaccion {
+    log.Println("Communication successful!")
+}
+```
 
 ## Common Request Parameters
 
