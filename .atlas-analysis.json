@@ -1,0 +1,128 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "go-siat",
+  "projectDescription": "A robust Go SDK for integrating with Bolivia's SIAT (Sistema de Facturación) SOAP web services",
+  "theme": "aspen",
+  "primaryColor": "#94cb04",
+  "lightColor": "#545454",
+  "darkColor": null,
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/authentication",
+              "concepts/environments"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/codigos",
+              "guides/sincronizacion",
+              "guides/operaciones",
+              "guides/compra-venta",
+              "guides/xml-signing",
+              "guides/error-handling"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Client",
+            "pages": [
+              "api/client"
+            ]
+          },
+          {
+            "group": "Codigos Service",
+            "pages": [
+              "api/codigos/overview",
+              "api/codigos/cuis",
+              "api/codigos/cufd",
+              "api/codigos/verificar-nit",
+              "api/codigos/certificado-revocado"
+            ]
+          },
+          {
+            "group": "Sincronizacion Service",
+            "pages": [
+              "api/sincronizacion/overview",
+              "api/sincronizacion/actividades",
+              "api/sincronizacion/parametricas",
+              "api/sincronizacion/productos-servicios"
+            ]
+          },
+          {
+            "group": "Operaciones Service",
+            "pages": [
+              "api/operaciones/overview",
+              "api/operaciones/punto-venta",
+              "api/operaciones/eventos-significativos"
+            ]
+          },
+          {
+            "group": "Compra Venta Service",
+            "pages": [
+              "api/compra-venta/overview",
+              "api/compra-venta/recepcion-factura",
+              "api/compra-venta/anulacion-factura",
+              "api/compra-venta/factura-builder"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "api/util/cuf-generator",
+              "api/util/xml-signing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "CUIS and CUFD code management (individual and bulk)",
+    "NIT validation and certificate revocation handling",
+    "Catalog synchronization (activities, parameters, products)",
+    "Point of sale operations and significant events",
+    "Invoice reception with XML signing and compression",
+    "Invoice cancellation support",
+    "CUF generation and XML digital signatures",
+    "Builder pattern API for type-safe request construction"
+  ],
+  "publicApiSurface": [
+    "siat.New() - Initialize SIAT client",
+    "Codigos.SolicitudCuis() - Request CUIS code",
+    "Codigos.SolicitudCufd() - Request CUFD code",
+    "Codigos.VerificarNit() - Verify NIT number",
+    "Sincronizacion.SincronizarActividades() - Sync activities catalog",
+    "Sincronizacion.SincronizarParametrica*() - Sync parametric catalogs",
+    "Operaciones.RegistroPuntoVenta() - Register point of sale",
+    "Operaciones.CierrePuntoVenta() - Close point of sale",
+    "Operaciones.RegistroEventoSignificativo() - Register significant event",
+    "CompraVenta.RecepcionFactura() - Submit invoice",
+    "CompraVenta.AnulacionFactura() - Cancel invoice",
+    "CompraVenta.GenerarCUF() - Generate unique invoice code",
+    "CompraVenta.SignXML() - Sign XML document",
+    "models.Codigos.New*Request() - Builder for Codigos requests",
+    "models.Sincronizacion.New*Request() - Builder for Sincronizacion requests",
+    "models.Operaciones.New*Request() - Builder for Operaciones requests",
+    "models.CompraVenta.New*() - Builders for invoice components"
+  ]
+}
