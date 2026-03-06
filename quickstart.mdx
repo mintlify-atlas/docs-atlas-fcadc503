@@ -1,80 +1,319 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Step-by-step guide to making your first SIAT API call with go-siat
 ---
 
-## Get started in three steps
+This guide walks you through requesting CUIS and CUFD codes - the essential first steps for any SIAT integration.
 
-Get your documentation site running locally and make your first customization.
+## What You'll Build
 
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+You'll create a complete program that:
+1. Initializes the go-siat SDK
+2. Requests a CUIS (Código Único de Inicio de Sistemas)
+3. Uses the CUIS to request a CUFD (Código Único de Facturación Diaria)
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  CUIS and CUFD codes are required before you can perform any invoicing operations in SIAT.
 </Note>
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install go-siat">
+    ```bash
+    go get github.com/ron86i/go-siat@latest
+    ```
+  </Step>
+  
+  <Step title="Get your SIAT credentials">
+    You'll need:
+    - **API Token**: Your SIAT authentication token
+    - **NIT**: Your tax identification number
+    - **Sistema Code**: Your registered system code
+  </Step>
+</Steps>
+
+## Complete Example
+
+Create a new file `main.go`:
+
+```go main.go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // 1. Initialize the SIAT SDK
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+
+    codigosService := s.Codigos
+
+    // 2. Build CUIS request using the builder pattern
+    cuisReq := models.Codigos.NewCuisRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSucursal(0).
+        WithCodigoSistema("ABC123DEF").
+        WithNit(123456789).
+        Build()
+
+    ctx := context.Background()
+    cfg := config.Config{Token: "TU_TOKEN_API"}
+
+    // 3. Request CUIS
+    resp, err := codigosService.SolicitudCuis(ctx, cfg, cuisReq)
+    if err != nil {
+        log.Fatalf("Error al solicitar CUIS: %v", err)
+    }
+
+    if resp != nil && resp.Body.Content.RespuestaCuis.Transaccion {
+        fmt.Printf("CUIS obtenido: %s\n", resp.Body.Content.RespuestaCuis.Codigo)
+
+        // 4. With the CUIS, request a CUFD
+        cufdReq := models.Codigos.NewCufdRequest().
+            WithCodigoAmbiente(1).
+            WithCodigoModalidad(1).
+            WithCodigoPuntoVenta(0).
+            WithCodigoSucursal(0).
+            WithCodigoSistema("ABC123DEF").
+            WithNit(123456789).
+            WithCuis(resp.Body.Content.RespuestaCuis.Codigo).
+            Build()
+
+        cufdResp, err := codigosService.SolicitudCufd(ctx, cfg, cufdReq)
+        if err == nil && cufdResp.Body.Content.RespuestaCufd.Transaccion {
+            fmt.Printf("CUFD obtenido: %s (Control: %s)\n",
+                cufdResp.Body.Content.RespuestaCufd.Codigo,
+                cufdResp.Body.Content.RespuestaCufd.CodigoControl)
+        }
+    }
+}
+```
+
+## Understanding the Code
+
+Let's break down each step:
+
+### Step 1: Initialize the SDK
+
+```go
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+```
+
+- **First parameter**: SIAT base URL (use pilot URL for testing)
+- **Second parameter**: HTTP client (nil uses default with 15s timeout)
+- Returns a `siatServices` struct with access to all modules
+
+### Step 2: Build a CUIS Request
+
+```go
+cuisReq := models.Codigos.NewCuisRequest().
+    WithCodigoAmbiente(1).        // 1=Testing, 2=Production
+    WithCodigoModalidad(1).        // Modality code
+    WithCodigoPuntoVenta(0).       // Point of sale code (0=main office)
+    WithCodigoSucursal(0).         // Branch code (0=main branch)
+    WithCodigoSistema("ABC123DEF"). // Your system code
+    WithNit(123456789).            // Your NIT
+    Build()
+```
+
+<Warning>
+  Replace `"ABC123DEF"` and `123456789` with your actual system code and NIT.
+</Warning>
+
+The builder pattern ensures:
+- **Type safety**: Can't pass wrong types
+- **Fluent API**: Chain methods for readability
+- **Immutability**: `Build()` returns an opaque interface
+
+### Step 3: Execute the Request
+
+```go
+ctx := context.Background()
+cfg := config.Config{Token: "TU_TOKEN_API"}
+
+resp, err := codigosService.SolicitudCuis(ctx, cfg, cuisReq)
+```
+
+- **Context**: For cancellation and timeouts
+- **Config**: Contains your API token
+- **Request**: The built request object
+
+### Step 4: Use the CUIS to Request CUFD
+
+Once you have a CUIS, you can request a CUFD:
+
+```go
+cufdReq := models.Codigos.NewCufdRequest().
+    // ... other parameters ...
+    WithCuis(resp.Body.Content.RespuestaCuis.Codigo). // Use obtained CUIS
+    Build()
+```
+
+## Running the Example
+
+<Steps>
+  <Step title="Configure your credentials">
+    Edit the code to include your actual:
+    - API Token
+    - NIT
+    - Sistema Code
+  </Step>
+  
+  <Step title="Run the program">
+    ```bash
+    go run main.go
+    ```
+  </Step>
+  
+  <Step title="Expected output">
+    ```
+    CUIS obtenido: C2FC682B
+    CUFD obtenido: B2A9F3E1 (Control: XYZ789)
+    ```
+  </Step>
+</Steps>
+
+## Common Parameters Explained
+
+<ParamField path="CodigoAmbiente" type="int" required>
+  Environment code:
+  - `1` = Testing/Pilot
+  - `2` = Production
+</ParamField>
+
+<ParamField path="CodigoModalidad" type="int" required>
+  Modality code:
+  - `1` = Electronic Invoicing
+  - `2` = Electronic Invoicing with Electronic Sales Note
+</ParamField>
+
+<ParamField path="CodigoSucursal" type="int" required>
+  Branch code. Use `0` for the main branch.
+</ParamField>
+
+<ParamField path="CodigoPuntoVenta" type="int" required>
+  Point of sale code. Use `0` for the main office.
+</ParamField>
+
+<ParamField path="CodigoSistema" type="string" required>
+  Your registered system code in SIAT.
+</ParamField>
+
+<ParamField path="Nit" type="int64" required>
+  Your tax identification number.
+</ParamField>
+
+## Next Steps
+
+Now that you can request CUIS and CUFD codes, explore other SDK capabilities:
+
+<CardGroup cols={2}>
+  <Card title="NIT Validation" icon="check-circle">
+    ```go
+    req := models.Codigos.NewVerificarNitRequest().
+        WithNitParaVerificacion(123456789).
+        WithCuis("C2FC682B").
+        // ... other params
+        Build()
+    
+    resp, err := s.Codigos.VerificarNit(ctx, cfg, req)
+    ```
+  </Card>
+  
+  <Card title="Catalog Synchronization" icon="sync">
+    ```go
+    req := models.Sincronizacion.NewSincronizarActividadesRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoSistema("ABC123DEF").
+        WithCuis("C2FC682B").
+        Build()
+    
+    resp, err := s.Sincronizacion.SincronizarActividades(ctx, cfg, req)
+    ```
+  </Card>
+  
+  <Card title="Point of Sale Operations" icon="cash-register">
+    ```go
+    req := models.Operaciones.NewRegistroPuntoVentaRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoTipoPuntoVenta(2).
+        WithNombrePuntoVenta("Caja 01").
+        WithCuis("C2FC682B").
+        Build()
+    
+    resp, err := s.Operaciones.RegistroPuntoVenta(ctx, cfg, req)
+    ```
+  </Card>
+  
+  <Card title="Invoice Operations" icon="file-invoice">
+    Learn how to:
+    - Generate CUF codes
+    - Build and sign invoices
+    - Send invoices to SIAT
+    - Cancel invoices
+  </Card>
+</CardGroup>
+
+## Error Handling
+
+Always check the transaction status in responses:
+
+```go
+if resp != nil && resp.Body.Content.RespuestaCuis.Transaccion {
+    // Success - use the response
+    fmt.Println("CUIS:", resp.Body.Content.RespuestaCuis.Codigo)
+} else {
+    // Failed - check error messages
+    fmt.Println("Error:", resp.Body.Content.RespuestaCuis.Mensajes)
+}
+```
+
+<Tip>
+  Store CUIS codes securely - they're valid for extended periods and required for most SIAT operations.
+</Tip>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication errors">
+    Verify your API token is correct and active:
+    ```go
+    cfg := config.Config{Token: "YOUR_ACTUAL_TOKEN"}
+    ```
+  </Accordion>
+  
+  <Accordion title="Invalid sistema code">
+    Ensure your sistema code is registered in SIAT:
+    - Contact SIAT support to verify your system registration
+    - Check that you're using the exact code provided during registration
+  </Accordion>
+  
+  <Accordion title="Network timeouts">
+    If requests timeout, increase the HTTP client timeout:
+    ```go
+    client := &http.Client{Timeout: 30 * time.Second}
+    s, err := siat.New(baseURL, client)
+    ```
+  </Accordion>
+  
+  <Accordion title="Testing vs Production">
+    Remember to change `CodigoAmbiente` when moving to production:
+    - Testing: `WithCodigoAmbiente(1)`
+    - Production: `WithCodigoAmbiente(2)`
+  </Accordion>
+</AccordionGroup>

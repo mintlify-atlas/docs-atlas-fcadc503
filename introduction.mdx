@@ -1,0 +1,114 @@
+---
+title: Introduction
+description: Overview of go-siat, a robust Go SDK for integrating with Bolivia's SIAT tax invoicing system
+---
+
+**go-siat** is a robust SDK written in Go, designed to facilitate integration with the SOAP web services of **SIAT (Sistema de Facturación de Impuestos Nacionales de Bolivia)** - Bolivia's National Tax Invoicing System.
+
+## What is go-siat?
+
+go-siat provides a clean, type-safe API for interacting with Bolivia's SIAT tax system. The SDK abstracts the complexity of SOAP communications and provides an intuitive builder pattern for constructing requests.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Code Management" icon="key">
+    Request **CUIS** and **CUFD** codes (individual and bulk)
+    
+    Validate **NIT** numbers
+    
+    Test communication and retrieve revoked certificates
+  </Card>
+  
+  <Card title="Catalog Synchronization" icon="sync">
+    Synchronize activities, parametric data, products and services
+    
+    Sync document sector information
+  </Card>
+  
+  <Card title="Point of Sale Operations" icon="cash-register">
+    Register and close points of sale
+    
+    Manage **significant events**
+    
+    Query existing points of sale
+  </Card>
+  
+  <Card title="Purchase & Sales" icon="file-invoice">
+    Receive invoices (signed XML, compressed and encoded)
+    
+    Cancel invoices
+    
+    Generate **CUF** and **digital XML signatures**
+  </Card>
+</CardGroup>
+
+## Architecture
+
+The SDK is organized into four main service modules:
+
+- **Codigos** - Code management (CUIS, CUFD, NIT validation)
+- **Sincronizacion** - Catalog synchronization
+- **Operaciones** - Point of sale operations
+- **CompraVenta** - Invoice sending and cancellation
+
+<Note>
+  All requests use the **builder pattern** to ensure type safety and provide a clear, fluent API.
+</Note>
+
+## Design Philosophy
+
+### Type-Safe Builders
+
+go-siat uses opaque interfaces and builder patterns to ensure you can't accidentally construct invalid requests:
+
+```go
+// Requests are built using fluent builders
+req := models.Codigos.NewCuisRequest().
+    WithNit(123456789).
+    WithCodigoAmbiente(2).
+    WithCodigoSistema("ABC123XYZ").
+    Build()
+```
+
+### Service-Based Organization
+
+All SIAT operations are organized into logical service groups accessible through a single entry point:
+
+```go
+s, err := siat.New(baseURL, nil)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Access services through the unified interface
+s.Codigos.SolicitudCuis(...)
+s.Sincronizacion.SincronizarActividades(...)
+s.Operaciones.RegistroPuntoVenta(...)
+s.CompraVenta.RecepcionFactura(...)
+```
+
+## Environment Support
+
+go-siat supports both testing and production environments:
+
+- **Testing**: `https://pilotosiatservicios.impuestos.gob.bo/v2`
+- **Production**: Configure with your production SIAT URL
+
+## Requirements
+
+- **Go 1.26+**
+- Valid SIAT API credentials (Token)
+- For invoice signing: Digital certificate and private key
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install go-siat in your project
+  </Card>
+  
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Make your first SIAT API call
+  </Card>
+</CardGroup>

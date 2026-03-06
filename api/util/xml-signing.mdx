@@ -1,0 +1,184 @@
+---
+title: "XML Signing"
+description: "Digitally sign XML documents using XMLDSig enveloped signatures"
+---
+
+## SignXML
+
+Signs an XML document using an enveloped signature following the XMLDSig standard. This is required for invoice validation by the Bolivian tax authority (SIN).
+
+The function uses the `goxmldsig` library to create a canonicalized (C14N) XML signature with RSA-SHA256 algorithm.
+
+### Function Signature
+
+```go
+func SignXML(xmlBytes []byte, keyPath string, certPath string) ([]byte, error)
+```
+
+### Parameters
+
+<ParamField path="xmlBytes" type="[]byte" required>
+  The XML document to be signed as a byte array.
+</ParamField>
+
+<ParamField path="keyPath" type="string" required>
+  File path to the RSA private key in PEM format. Supports both PKCS#1 and PKCS#8 formats.
+</ParamField>
+
+<ParamField path="certPath" type="string" required>
+  File path to the X.509 certificate in PEM format.
+</ParamField>
+
+### Returns
+
+<ResponseField name="signedXML" type="[]byte">
+  The signed XML document with the digital signature embedded.
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  Error if signing fails (invalid key, certificate, or XML format).
+</ResponseField>
+
+### XML Signing Process
+
+The signing process follows these steps:
+
+1. **Load Private Key**: Reads the RSA private key from the PEM file, supporting both PKCS#1 and PKCS#8 formats.
+
+2. **Load Certificate**: Reads the X.509 certificate from the PEM file.
+
+3. **Configure Key Store**: Creates a key store with the private key and certificate.
+
+4. **Configure Signing Context**: Sets up the signing context with:
+   - C14N 1.0 with comments canonicalization
+   - RSA-SHA256 signature algorithm
+
+5. **Parse XML**: Parses the input XML using the `etree` library.
+
+6. **Create Enveloped Signature**: Generates an enveloped signature that embeds the `<Signature>` element within the XML document.
+
+7. **Serialize**: Converts the signed XML back to bytes.
+
+### Signature Format
+
+The function creates an **enveloped signature**, where the `<Signature>` element is added as a child of the root element:
+
+```xml
+<factura>
+  <!-- Invoice data -->
+  <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+    <SignedInfo>
+      <CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments"/>
+      <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/>
+      <Reference URI="">
+        <Transforms>
+          <Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/>
+        </Transforms>
+        <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+        <DigestValue>...</DigestValue>
+      </Reference>
+    </SignedInfo>
+    <SignatureValue>...</SignatureValue>
+    <KeyInfo>
+      <X509Data>
+        <X509Certificate>...</X509Certificate>
+      </X509Data>
+    </KeyInfo>
+  </Signature>
+</factura>
+```
+
+### Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+    
+    "github.com/amvi88/go-siat/pkg/util"
+)
+
+func main() {
+    // Read the invoice XML
+    xmlData, err := os.ReadFile("invoice.xml")
+    if err != nil {
+        log.Fatalf("Error reading XML: %v", err)
+    }
+    
+    // Paths to private key and certificate
+    keyPath := "./certs/private_key.pem"
+    certPath := "./certs/certificate.pem"
+    
+    // Sign the XML
+    signedXML, err := util.SignXML(xmlData, keyPath, certPath)
+    if err != nil {
+        log.Fatalf("Error signing XML: %v", err)
+    }
+    
+    // Save the signed XML
+    err = os.WriteFile("invoice_signed.xml", signedXML, 0644)
+    if err != nil {
+        log.Fatalf("Error writing signed XML: %v", err)
+    }
+    
+    fmt.Println("XML signed successfully")
+}
+```
+
+### Private Key Format Support
+
+The function automatically detects and supports two private key formats:
+
+#### PKCS#1 Format
+```
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+-----END RSA PRIVATE KEY-----
+```
+
+#### PKCS#8 Format
+```
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkq...
+-----END PRIVATE KEY-----
+```
+
+### Certificate Requirements
+
+The X.509 certificate must:
+- Be in PEM format
+- Match the private key
+- Be issued by a certificate authority recognized by the tax authority (SIN)
+- Be valid (not expired)
+- Have the appropriate key usage extensions for digital signatures
+
+### Security Considerations
+
+- **Private Key Protection**: Store private keys securely and restrict file permissions (e.g., `chmod 600`).
+- **Certificate Validation**: Ensure certificates are from trusted sources and not expired.
+- **Key Strength**: Use RSA keys of at least 2048 bits.
+- **Algorithm**: The function uses RSA-SHA256, which meets current security standards.
+
+### Error Handling
+
+The function returns errors for:
+- Invalid or missing private key file
+- Invalid or missing certificate file
+- Malformed PEM format
+- Invalid XML structure
+- Signature generation failures
+- Key type mismatch (non-RSA keys)
+
+### Dependencies
+
+This function relies on:
+- `github.com/beevik/etree` - XML parsing and manipulation
+- `github.com/russellhaering/goxmldsig` - XMLDSig signature generation
+- Standard Go crypto libraries (`crypto/rsa`, `crypto/x509`)
+
+### Related
+
+- [CUF Generator](/api/util/cuf-generator) - Generate unique invoice codes

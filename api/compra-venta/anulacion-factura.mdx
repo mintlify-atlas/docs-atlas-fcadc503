@@ -1,0 +1,299 @@
+---
+title: 'AnulacionFactura'
+description: 'Cancel a previously accepted invoice in the SIAT system'
+icon: 'ban'
+---
+
+## Overview
+
+The `AnulacionFactura` method allows you to cancel an invoice that was previously accepted by SIAT. This is required when an invoice needs to be voided due to errors, returns, or other business reasons.
+
+## Method Signature
+
+```go
+func (s *SiatCompraVentaService) AnulacionFactura(
+    ctx context.Context,
+    config config.Config,
+    request AnulacionFacturaRequest,
+) (*soap.EnvelopeResponse[compra_venta.AnulacionFacturaResponse], error)
+```
+
+## Parameters
+
+<ParamField path="ctx" type="context.Context" required>
+  Go context for request lifecycle management, cancellation, and timeouts
+</ParamField>
+
+<ParamField path="config" type="config.Config" required>
+  Configuration containing the API token for authentication
+  
+  ```go
+  type Config struct {
+      Token string // API key from SIAT
+  }
+  ```
+</ParamField>
+
+<ParamField path="request" type="AnulacionFacturaRequest" required>
+  Opaque request built using `models.CompraVenta.NewAnulacionFacturaRequest()` builder
+</ParamField>
+
+## Building the Request
+
+Use the `AnulacionFacturaBuilder` to construct the cancellation request:
+
+```go
+request := models.CompraVenta.NewAnulacionFacturaRequest().
+    WithCodigoAmbiente(2).              // 2 = Producción
+    WithCodigoDocumentoSector(1).       // Tipo de documento sector
+    WithCodigoEmision(1).               // 1 = En línea
+    WithCodigoModalidad(1).             // 1 = Electrónica
+    WithCodigoPuntoVenta(0).            // Código del punto de venta
+    WithCodigoSistema("ABC123DEF").     // Código del sistema
+    WithCodigoSucursal(0).              // Código de la sucursal
+    WithCufd("CUFD_VIGENTE").           // CUFD vigente
+    WithCuf("CUF_DE_LA_FACTURA").       // CUF de la factura a anular
+    WithCuis("C2FC682B").               // CUIS del punto de venta
+    WithNit(123456789).                 // NIT del emisor
+    WithTipoFacturaDocumento(1).        // Tipo de factura
+    WithCodigoMotivo(1).                // Código del motivo de anulación
+    Build()
+```
+
+### Request Fields
+
+<ParamField path="CodigoAmbiente" type="int" required>
+  Execution environment: `1` = Testing, `2` = Production
+</ParamField>
+
+<ParamField path="CodigoDocumentoSector" type="int" required>
+  Document sector type code from SIAT catalogs
+</ParamField>
+
+<ParamField path="CodigoEmision" type="int" required>
+  Emission type: `1` = Online, `2` = Offline
+</ParamField>
+
+<ParamField path="CodigoModalidad" type="int" required>
+  Modality code: `1` = Electronic, `2` = Computer/Manual
+</ParamField>
+
+<ParamField path="CodigoPuntoVenta" type="int" required>
+  Point of sale code registered in SIAT
+</ParamField>
+
+<ParamField path="CodigoSistema" type="string" required>
+  System code obtained during system registration
+</ParamField>
+
+<ParamField path="CodigoSucursal" type="int" required>
+  Branch/office code registered in SIAT
+</ParamField>
+
+<ParamField path="Cufd" type="string" required>
+  CUFD (Código Único de Factura Diario) - must be currently valid
+</ParamField>
+
+<ParamField path="Cuf" type="string" required>
+  CUF (Código Único de Factura) of the invoice to be canceled - this is the unique identifier of the invoice you want to void
+</ParamField>
+
+<ParamField path="Cuis" type="string" required>
+  CUIS (Código Único de Inicio de Sistema) - system initialization code
+</ParamField>
+
+<ParamField path="Nit" type="int64" required>
+  Tax identification number (NIT) of the issuer
+</ParamField>
+
+<ParamField path="TipoFacturaDocumento" type="int" required>
+  Invoice/document type code from SIAT catalogs
+</ParamField>
+
+<ParamField path="CodigoMotivo" type="int" required>
+  Cancellation reason code from SIAT catalog:
+  - `1` = Error in invoice
+  - `2` = Product return
+  - `3` = Other reasons (check SIAT documentation for complete list)
+</ParamField>
+
+## Response
+
+Returns a SOAP envelope containing `AnulacionFacturaResponse`:
+
+```go
+type AnulacionFacturaResponse struct {
+    RespuestaServicioFacturacion RespuestaServicioFacturacion
+}
+
+type RespuestaServicioFacturacion struct {
+    Transaccion       bool
+    CodigoRecepcion   string
+    CodigoEstado      int
+    CodigoDescripcion string
+    MensajesList      []MensajeServicio
+}
+```
+
+<ParamField path="Transaccion" type="boolean">
+  `true` if the cancellation was successful, `false` otherwise
+</ParamField>
+
+<ParamField path="CodigoRecepcion" type="string">
+  Reception code for the cancellation operation (present on success)
+</ParamField>
+
+<ParamField path="CodigoEstado" type="int">
+  Status code indicating the result of the operation
+</ParamField>
+
+<ParamField path="CodigoDescripcion" type="string">
+  Human-readable description of the operation result
+</ParamField>
+
+<ParamField path="MensajesList" type="[]MensajeServicio">
+  List of messages, warnings, or errors
+  
+  Each message contains:
+  - `Codigo` (int): Message code
+  - `Descripcion` (string): Message description
+</ParamField>
+
+## Example
+
+Complete example of canceling an invoice:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize SIAT client
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+
+    // CUF of the invoice to cancel
+    cufToCancel := "ABC123XYZ789..."
+
+    // Build cancellation request
+    request := models.CompraVenta.NewAnulacionFacturaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoDocumentoSector(1).
+        WithCodigoEmision(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123DEF").
+        WithCodigoSucursal(0).
+        WithCufd("CUFD_VIGENTE").
+        WithCuf(cufToCancel).
+        WithCuis("C2FC682B").
+        WithNit(123456789).
+        WithTipoFacturaDocumento(1).
+        WithCodigoMotivo(1). // 1 = Error in invoice
+        Build()
+
+    // Submit cancellation
+    resp, err := client.CompraVenta.AnulacionFactura(ctx, cfg, request)
+    if err != nil {
+        log.Fatalf("Error canceling invoice: %v", err)
+    }
+
+    // Check response
+    if resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+        fmt.Printf("Invoice successfully canceled!\n")
+        fmt.Printf("Reception code: %s\n",
+            resp.Body.Content.RespuestaServicioFacturacion.CodigoRecepcion)
+    } else {
+        fmt.Printf("Cancellation failed: %s\n",
+            resp.Body.Content.RespuestaServicioFacturacion.CodigoDescripcion)
+        
+        // Show validation messages
+        for _, msg := range resp.Body.Content.RespuestaServicioFacturacion.MensajesList {
+            fmt.Printf("  [%d] %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+## Error Handling
+
+Handle both network errors and SIAT validation errors:
+
+```go
+resp, err := client.CompraVenta.AnulacionFactura(ctx, cfg, request)
+if err != nil {
+    // Network or HTTP error
+    log.Printf("Request failed: %v", err)
+    return
+}
+
+// Check SIAT response
+if !resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+    // SIAT rejected the cancellation
+    log.Printf("Cancellation rejected: %s",
+        resp.Body.Content.RespuestaServicioFacturacion.CodigoDescripcion)
+    
+    // Common reasons for rejection:
+    // - Invoice not found (invalid CUF)
+    // - Invoice already canceled
+    // - Invalid credentials (CUFD/CUIS expired)
+    // - Invalid cancellation reason code
+    
+    for _, msg := range resp.Body.Content.RespuestaServicioFacturacion.MensajesList {
+        log.Printf("  Code %d: %s", msg.Codigo, msg.Descripcion)
+    }
+}
+```
+
+## Common Cancellation Reasons
+
+When using `WithCodigoMotivo()`, use the appropriate reason code:
+
+| Code | Reason | When to Use |
+|------|--------|-------------|
+| 1 | Error in invoice | Invoice contains incorrect data |
+| 2 | Product return | Customer returned products |
+| 3+ | Other reasons | Check SIAT documentation for complete list |
+
+<Note>
+  The exact list of cancellation reason codes may vary. Always refer to the latest SIAT catalogs for the complete and up-to-date list.
+</Note>
+
+## Important Considerations
+
+<Warning>
+  An invoice can only be canceled if it was previously accepted by SIAT. You cannot cancel rejected invoices.
+</Warning>
+
+<Info>
+  The CUFD used for cancellation must be valid at the time of the cancellation request. If your CUFD has expired, you must obtain a new one before attempting to cancel an invoice.
+</Info>
+
+<Tip>
+  Keep track of cancellation reception codes in your system for audit purposes. SIAT provides these codes as proof of the cancellation operation.
+</Tip>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="RecepcionFactura" icon="paper-plane" href="/api/compra-venta/recepcion-factura">
+    Submit invoices to SIAT
+  </Card>
+  <Card title="Overview" icon="receipt" href="/api/compra-venta/overview">
+    CompraVenta service overview
+  </Card>
+</CardGroup>

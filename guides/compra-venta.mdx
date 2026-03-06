@@ -1,0 +1,526 @@
+---
+title: 'Invoice Submission'
+description: 'Create, submit, and cancel electronic invoices'
+icon: 'file-invoice'
+---
+
+## Overview
+
+The **CompraVenta** service handles electronic invoice operations:
+
+- Build invoice documents with header and line items
+- Generate CUF (Código Único de Factura)
+- Sign XML documents
+- Compress and hash invoice data
+- Submit invoices to SIAT
+- Cancel invoices
+
+<Warning>
+Invoice submission requires valid CUIS, CUFD, and a registered point of sale. Complete the setup guides first.
+</Warning>
+
+## Initialize the Service
+
+```go
+import (
+    "bytes"
+    "compress/gzip"
+    "crypto/sha256"
+    "encoding/base64"
+    "encoding/hex"
+    "encoding/xml"
+    "time"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/internal/core/domain/datatype"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+if err != nil {
+    log.Fatalf("Error: %v", err)
+}
+
+cvService := s.CompraVenta
+
+cfg := config.Config{Token: "YOUR_API_TOKEN"}
+ctx := context.Background()
+```
+
+## Generate CUF
+
+The CUF is a unique invoice identifier. Generate it before building the invoice:
+
+```go
+nit := int64(123456789)
+fechaEmision := time.Now()
+codigoControl := "XYZ789"  // From CUFD response
+
+cuf, err := models.CompraVenta.GenerarCUF(
+    nit,              // Taxpayer NIT
+    fechaEmision,     // Invoice date/time
+    0,                // Branch code (sucursal)
+    1,                // Modality (1=Electronic)
+    1,                // Emission type (1=Online)
+    1,                // Invoice type (1=With VAT)
+    1,                // Document sector (1=Sale/Purchase)
+    1,                // Invoice number
+    0,                // Point of sale code
+    codigoControl,    // CUFD control code
+)
+if err != nil {
+    log.Fatalf("Error generating CUF: %v", err)
+}
+
+fmt.Printf("CUF: %s\n", cuf)
+```
+
+<Info>
+The CUF helper uses the Mod 11 algorithm and Base16 encoding as specified by SIAT regulations.
+</Info>
+
+## Build Invoice Structure
+
+<Steps>
+  <Step title="Build Invoice Header">
+    The header contains seller and buyer information plus totals:
+
+    ```go
+    cabeceraReq := models.CompraVenta.NewCabecera().
+        // Seller information
+        WithNitEmisor(nit).
+        WithRazonSocialEmisor("Mi Empresa S.A.").
+        WithMunicipio("La Paz").
+        WithDireccion("Av. Principal 123").
+        
+        // Invoice identifiers
+        WithNumeroFactura(1).
+        WithCuf(cuf).
+        WithCufd("CODIGO_CUFD_EJEMPLO").
+        WithCodigoSucursal(0).
+        WithCodigoPuntoVenta(0).
+        WithFechaEmision(fechaEmision.Format("2006-01-02T15:04:05.000")).
+        
+        // Buyer information
+        WithNombreRazonSocial("JUAN PEREZ").
+        WithCodigoTipoDocumentoIdentidad(1).  // 1=CI
+        WithNumeroDocumento("5544332").
+        WithCodigoCliente("CLI-001").
+        
+        // Payment and amounts
+        WithCodigoMetodoPago(1).         // 1=Cash
+        WithMontoTotal(100.0).
+        WithMontoTotalSujetoIva(100.0).
+        WithCodigoMoneda(1).             // 1=BOB
+        WithTipoCambio(1.0).
+        WithMontoTotalMoneda(100.0).
+        
+        // Legal requirements
+        WithLeyenda("Ley N° 453: El proveedor deberá suministrar el servicio...").
+        WithUsuario("admin").
+        WithCodigoDocumentoSector(1).    // 1=Sale/Purchase
+        Build()
+    ```
+
+    <Note>
+    All monetary amounts should be calculated accurately. SIAT validates totals against line items.
+    </Note>
+  </Step>
+
+  <Step title="Build Line Items (Detalle)">
+    Add one or more line items to the invoice:
+
+    ```go
+    detalleReq := models.CompraVenta.NewDetalle().
+        WithActividadEconomica("461000").
+        WithCodigoProductoSin("12345").      // SIN product code
+        WithCodigoProducto("PROD-001").      // Your internal code
+        WithDescripcion("Producto de prueba").
+        WithCantidad(1.0).
+        WithUnidadMedida(57).                // Unit code from catalog
+        WithPrecioUnitario(100.0).
+        WithSubTotal(100.0).
+        Build()
+
+    // For multiple items, create additional detalle objects
+    detalleReq2 := models.CompraVenta.NewDetalle().
+        WithActividadEconomica("461000").
+        WithCodigoProductoSin("67890").
+        WithCodigoProducto("PROD-002").
+        WithDescripcion("Servicio de consultoría").
+        WithCantidad(2.0).
+        WithUnidadMedida(58).
+        WithPrecioUnitario(50.0).
+        WithSubTotal(100.0).
+        Build()
+    ```
+  </Step>
+
+  <Step title="Assemble Complete Invoice">
+    Combine header and line items:
+
+    ```go
+    facturaReq := models.CompraVenta.NewFactura().
+        WithCabecera(cabeceraReq).
+        AddDetalle(detalleReq).
+        AddDetalle(detalleReq2).  // Add multiple items
+        Build()
+    ```
+  </Step>
+</Steps>
+
+## Sign and Compress Invoice
+
+<Steps>
+  <Step title="Serialize to XML">
+    ```go
+    xmlData, err := xml.Marshal(facturaReq)
+    if err != nil {
+        log.Fatalf("Error serializing XML: %v", err)
+    }
+    ```
+  </Step>
+
+  <Step title="Sign the XML">
+    Use your digital certificate to sign the invoice:
+
+    ```go
+    signedXML, err := models.CompraVenta.SignXML(
+        xmlData, 
+        "key.pem",   // Path to private key
+        "cert.crt",  // Path to certificate
+    )
+    if err != nil {
+        // In development, you might skip signing
+        fmt.Println("Warning: Skipping signature (no certificates)")
+        signedXML = xmlData
+    }
+    ```
+
+    <Warning>
+    In production, digital signatures are mandatory. Obtain valid certificates from Agencia de Gobierno Electrónico (AGETIC).
+    </Warning>
+  </Step>
+
+  <Step title="Compress with Gzip">
+    ```go
+    var buf bytes.Buffer
+    zw := gzip.NewWriter(&buf)
+    if _, err := zw.Write(signedXML); err != nil {
+        log.Fatalf("Error compressing XML: %v", err)
+    }
+    zw.Close()
+    compressedBytes := buf.Bytes()
+    ```
+  </Step>
+
+  <Step title="Calculate Hash and Encode">
+    ```go
+    // SHA256 hash of compressed data
+    hash := sha256.Sum256(compressedBytes)
+    hashString := hex.EncodeToString(hash[:])
+
+    // Base64 encode for transmission
+    encodedArchivo := base64.StdEncoding.EncodeToString(compressedBytes)
+    ```
+  </Step>
+</Steps>
+
+## Submit Invoice to SIAT
+
+<Steps>
+  <Step title="Build Submission Request">
+    ```go
+    recepcionReq := models.CompraVenta.NewRecepcionFacturaRequest().
+        WithCodigoAmbiente(2).               // 2=Pilot
+        WithCodigoDocumentoSector(1).
+        WithCodigoEmision(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123DEF").
+        WithCodigoSucursal(0).
+        WithCufd("CODIGO_CUFD_EJEMPLO").
+        WithCuis("C2FC682B").
+        WithNit(nit).
+        WithTipoFacturaDocumento(1).
+        WithArchivo([]byte(encodedArchivo)).    // Base64 encoded
+        WithFechaEnvio(datatype.TimeSiat(fechaEmision)).
+        WithHashArchivo(hashString).            // SHA256 hash
+        Build()
+    ```
+  </Step>
+
+  <Step title="Submit and Validate Response">
+    ```go
+    resp, err := cvService.RecepcionFactura(ctx, cfg, recepcionReq)
+    if err != nil {
+        log.Fatalf("Error submitting invoice: %v", err)
+    }
+
+    if resp != nil && resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+        codigoRecepcion := resp.Body.Content.RespuestaServicioFacturacion.CodigoRecepcion
+        fmt.Printf("Success! Reception Code: %s\n", codigoRecepcion)
+        
+        // Store the reception code for future reference
+    } else {
+        fmt.Printf("Submission failed: %v\n", 
+            resp.Body.Content.RespuestaServicioFacturacion.Mensajes)
+    }
+    ```
+  </Step>
+</Steps>
+
+## Cancel Invoice
+
+Cancel a previously submitted invoice:
+
+```go
+anulacionReq := models.CompraVenta.NewAnulacionFacturaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoDocumentoSector(1).
+    WithCodigoEmision(1).
+    WithCodigoModalidad(1).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCufd("CODIGO_CUFD_EJEMPLO").
+    WithCuf(cuf).                  // CUF of invoice to cancel
+    WithCuis("C2FC682B").
+    WithNit(nit).
+    WithTipoFacturaDocumento(1).
+    WithCodigoMotivo(1).           // Cancellation reason code
+    Build()
+
+anulResp, err := cvService.AnulacionFactura(ctx, cfg, anulacionReq)
+if err != nil {
+    log.Fatalf("Error canceling invoice: %v", err)
+}
+
+if anulResp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+    fmt.Println("Invoice canceled successfully")
+}
+```
+
+<Info>
+Consult the `SincronizarParametricaMotivoAnulacion` catalog for valid cancellation reason codes.
+</Info>
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "bytes"
+    "compress/gzip"
+    "context"
+    "crypto/sha256"
+    "encoding/base64"
+    "encoding/hex"
+    "encoding/xml"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/internal/core/domain/datatype"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+
+    cvService := s.CompraVenta
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+
+    nit := int64(123456789)
+    fechaEmision := time.Now()
+    codigoControl := "XYZ789"
+
+    // Generate CUF
+    cuf, err := models.CompraVenta.GenerarCUF(
+        nit, fechaEmision, 0, 1, 1, 1, 1, 1, 0, codigoControl)
+    if err != nil {
+        log.Fatalf("Error generating CUF: %v", err)
+    }
+
+    // Build invoice
+    cabeceraReq := models.CompraVenta.NewCabecera().
+        WithNitEmisor(nit).
+        WithRazonSocialEmisor("Mi Empresa S.A.").
+        WithMunicipio("La Paz").
+        WithNumeroFactura(1).
+        WithCuf(cuf).
+        WithCufd("CODIGO_CUFD_EJEMPLO").
+        WithCodigoSucursal(0).
+        WithDireccion("Av. Principal 123").
+        WithCodigoPuntoVenta(0).
+        WithFechaEmision(fechaEmision.Format("2006-01-02T15:04:05.000")).
+        WithNombreRazonSocial("JUAN PEREZ").
+        WithCodigoTipoDocumentoIdentidad(1).
+        WithNumeroDocumento("5544332").
+        WithCodigoCliente("CLI-001").
+        WithCodigoMetodoPago(1).
+        WithMontoTotal(100.0).
+        WithMontoTotalSujetoIva(100.0).
+        WithCodigoMoneda(1).
+        WithTipoCambio(1.0).
+        WithMontoTotalMoneda(100.0).
+        WithLeyenda("Ley N° 453: El proveedor deberá suministrar el servicio...").
+        WithUsuario("admin").
+        WithCodigoDocumentoSector(1).
+        Build()
+
+    detalleReq := models.CompraVenta.NewDetalle().
+        WithActividadEconomica("461000").
+        WithCodigoProductoSin("12345").
+        WithCodigoProducto("PROD-001").
+        WithDescripcion("Producto de prueba").
+        WithCantidad(1.0).
+        WithUnidadMedida(57).
+        WithPrecioUnitario(100.0).
+        WithSubTotal(100.0).
+        Build()
+
+    facturaReq := models.CompraVenta.NewFactura().
+        WithCabecera(cabeceraReq).
+        AddDetalle(detalleReq).
+        Build()
+
+    // Serialize to XML
+    xmlData, err := xml.Marshal(facturaReq)
+    if err != nil {
+        log.Fatalf("Error serializing XML: %v", err)
+    }
+
+    // Sign XML (skip in development if no certificates)
+    signedXML, err := models.CompraVenta.SignXML(xmlData, "key.pem", "cert.crt")
+    if err != nil {
+        fmt.Println("Skipping signature (no certificates available)")
+        signedXML = xmlData
+    }
+
+    // Compress
+    var buf bytes.Buffer
+    zw := gzip.NewWriter(&buf)
+    if _, err := zw.Write(signedXML); err != nil {
+        log.Fatalf("Error compressing: %v", err)
+    }
+    zw.Close()
+    compressedBytes := buf.Bytes()
+
+    // Hash and encode
+    hash := sha256.Sum256(compressedBytes)
+    hashString := hex.EncodeToString(hash[:])
+    encodedArchivo := base64.StdEncoding.EncodeToString(compressedBytes)
+
+    // Submit
+    recepcionReq := models.CompraVenta.NewRecepcionFacturaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoDocumentoSector(1).
+        WithCodigoEmision(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123DEF").
+        WithCodigoSucursal(0).
+        WithCufd("CODIGO_CUFD_EJEMPLO").
+        WithCuis("C2FC682B").
+        WithNit(nit).
+        WithTipoFacturaDocumento(1).
+        WithArchivo([]byte(encodedArchivo)).
+        WithFechaEnvio(datatype.TimeSiat(fechaEmision)).
+        WithHashArchivo(hashString).
+        Build()
+
+    resp, err := cvService.RecepcionFactura(ctx, cfg, recepcionReq)
+    if err != nil {
+        log.Fatalf("Error submitting: %v", err)
+    }
+
+    if resp != nil && resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+        fmt.Printf("✓ Success! Code: %s\n", 
+            resp.Body.Content.RespuestaServicioFacturacion.CodigoRecepcion)
+    } else {
+        fmt.Printf("✗ Failed: %v\n", 
+            resp.Body.Content.RespuestaServicioFacturacion)
+    }
+}
+```
+
+## Builder Pattern Reference
+
+### Cabecera (Header) Builder
+
+| Method | Description | Required |
+|--------|-------------|----------|
+| `WithNitEmisor()` | Seller's NIT | Yes |
+| `WithRazonSocialEmisor()` | Seller's business name | Yes |
+| `WithNumeroFactura()` | Sequential invoice number | Yes |
+| `WithCuf()` | Unique invoice code | Yes |
+| `WithCufd()` | Daily billing code | Yes |
+| `WithFechaEmision()` | Emission date (ISO format) | Yes |
+| `WithMontoTotal()` | Total amount | Yes |
+| `WithCodigoMetodoPago()` | Payment method code | Yes |
+| `WithNombreRazonSocial()` | Buyer's name | Yes |
+| `WithNumeroDocumento()` | Buyer's document number | Yes |
+
+### Detalle (Line Item) Builder
+
+| Method | Description | Required |
+|--------|-------------|----------|
+| `WithActividadEconomica()` | Economic activity code | Yes |
+| `WithCodigoProductoSin()` | SIN product code | Yes |
+| `WithDescripcion()` | Item description | Yes |
+| `WithCantidad()` | Quantity | Yes |
+| `WithUnidadMedida()` | Unit of measure code | Yes |
+| `WithPrecioUnitario()` | Unit price | Yes |
+| `WithSubTotal()` | Line total | Yes |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Invoice Numbering">
+    - Use sequential numbering per point of sale
+    - Never reuse invoice numbers
+    - Store the last used number in your database
+    - Validate uniqueness before submission
+  </Accordion>
+
+  <Accordion title="Data Validation">
+    - Validate NITs before creating invoices
+    - Verify product codes exist in synced catalogs
+    - Calculate totals accurately (sum of line items)
+    - Format dates in ISO 8601 format
+  </Accordion>
+
+  <Accordion title="Error Recovery">
+    - Store invoice data before submission
+    - Implement retry logic for network failures
+    - Log all submission attempts and responses
+    - Handle duplicate submission errors gracefully
+  </Accordion>
+
+  <Accordion title="Digital Signatures">
+    - Store certificates securely
+    - Monitor certificate expiration dates
+    - Test signature validation regularly
+    - Maintain backup certificates
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="XML Signing" icon="signature" href="/guides/xml-signing">
+    Learn about digital signature requirements
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle submission errors and validations
+  </Card>
+</CardGroup>

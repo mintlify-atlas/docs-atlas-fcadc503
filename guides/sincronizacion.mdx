@@ -1,0 +1,350 @@
+---
+title: 'Catalog Synchronization'
+description: 'Synchronize parametric catalogs and product lists from SIAT'
+icon: 'arrows-rotate'
+---
+
+## Overview
+
+The **Sincronizacion** service synchronizes parametric catalogs from SIAT to your local system. These catalogs contain essential reference data like:
+
+- Economic activities
+- Product and service codes (SIN codes)
+- Document types
+- Payment methods
+- Currencies and units of measure
+- Tax legends
+
+<Info>
+Synchronize catalogs regularly (daily or weekly) to ensure your system has the latest codes required for invoice validation.
+</Info>
+
+## Initialize the Service
+
+```go
+import (
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+if err != nil {
+    log.Fatalf("Error: %v", err)
+}
+
+sincService := s.Sincronizacion
+
+cfg := config.Config{Token: "YOUR_API_TOKEN"}
+ctx := context.Background()
+```
+
+## Generic Builder Pattern
+
+All synchronization requests use a generic builder with common parameters:
+
+```go
+request := models.Sincronizacion.NewSyncFunction().
+    WithCodigoAmbiente(1).          // 1=Production, 2=Pilot
+    WithNit(123456789).             // Your NIT
+    WithCodigoSistema("ABC123DEF"). // System code
+    WithCuis("C2FC682B").           // Valid CUIS
+    Build()
+```
+
+<Note>
+Most synchronization operations don't require `CodigoPuntoVenta` or `CodigoSucursal`. Only specify them when the catalog is point-of-sale specific.
+</Note>
+
+## Synchronize Economic Activities
+
+<Steps>
+  <Step title="Build Request">
+    ```go
+    actReq := models.Sincronizacion.NewSincronizarActividadesRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoSistema("ABC123DEF").
+        WithCuis("C2FC682B").
+        Build()
+    ```
+  </Step>
+
+  <Step title="Execute and Process">
+    ```go
+    actResp, err := sincService.SincronizarActividades(ctx, cfg, actReq)
+    if err != nil {
+        log.Fatalf("Error syncing activities: %v", err)
+    }
+
+    if actResp.RespuestaListaActividades.Transaccion {
+        fmt.Println("Activities synchronized successfully")
+        
+        // Process the activities list
+        for _, act := range actResp.RespuestaListaActividades.ListaCodigos {
+            fmt.Printf("Activity: %s - %s\n", 
+                act.CodigoCaeb, act.Descripcion)
+            // Store in your database
+        }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Synchronize Products and Services
+
+The products/services catalog contains SIN codes required for invoice line items:
+
+```go
+prodReq := models.Sincronizacion.NewSincronizarListaProductosServiciosRequest().
+    WithCodigoAmbiente(1).
+    WithNit(123456789).
+    WithCodigoSistema("ABC123DEF").
+    WithCuis("C2FC682B").
+    Build()
+
+prodResp, err := sincService.SincronizarListaProductosServicios(ctx, cfg, prodReq)
+if err != nil {
+    log.Fatalf("Error syncing products: %v", err)
+}
+
+if prodResp.RespuestaListaProductos.Transaccion {
+    fmt.Printf("Synced %d products/services\n", 
+        len(prodResp.RespuestaListaProductos.ListaCodigos))
+    
+    // Store products in database
+    for _, prod := range prodResp.RespuestaListaProductos.ListaCodigos {
+        fmt.Printf("SIN Code: %s - %s\n", 
+            prod.CodigoProducto, prod.DescripcionProducto)
+    }
+}
+```
+
+## Synchronize Parametric Catalogs
+
+Parametric catalogs provide reference data for various invoice fields:
+
+### Document Types
+
+```go
+docReq := models.Sincronizacion.NewSincronizarParametricaTipoDocumentoIdentidadRequest().
+    WithCodigoAmbiente(1).
+    WithNit(123456789).
+    WithCodigoSistema("ABC123DEF").
+    WithCuis("C2FC682B").
+    Build()
+
+docResp, err := sincService.SincronizarParametricaTipoDocumentoIdentidad(
+    ctx, cfg, docReq)
+```
+
+### Payment Methods
+
+```go
+pagoReq := models.Sincronizacion.NewSincronizarParametricaTipoMetodoPagoRequest().
+    WithCodigoAmbiente(1).
+    WithNit(123456789).
+    WithCodigoSistema("ABC123DEF").
+    WithCuis("C2FC682B").
+    Build()
+
+pagoResp, err := sincService.SincronizarParametricaTipoMetodoPago(
+    ctx, cfg, pagoReq)
+```
+
+### Currencies
+
+```go
+monedaReq := models.Sincronizacion.NewSincronizarParametricaTipoMonedaRequest().
+    WithCodigoAmbiente(1).
+    WithNit(123456789).
+    WithCodigoSistema("ABC123DEF").
+    WithCuis("C2FC682B").
+    Build()
+
+monedaResp, err := sincService.SincronizarParametricaTipoMoneda(
+    ctx, cfg, monedaReq)
+```
+
+### Units of Measure
+
+```go
+unidadReq := models.Sincronizacion.NewSincronizarParametricaUnidadMedidaRequest().
+    WithCodigoAmbiente(1).
+    WithNit(123456789).
+    WithCodigoSistema("ABC123DEF").
+    WithCuis("C2FC682B").
+    Build()
+
+unidadResp, err := sincService.SincronizarParametricaUnidadMedida(
+    ctx, cfg, unidadReq)
+```
+
+## Complete Synchronization Example
+
+Perform a complete catalog synchronization:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+
+    sincService := s.Sincronizacion
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+
+    // Common parameters
+    nit := int64(123456789)
+    sistema := "ABC123DEF"
+    cuis := "C2FC682B"
+
+    // Sync economic activities
+    actReq := models.Sincronizacion.NewSincronizarActividadesRequest().
+        WithCodigoAmbiente(1).
+        WithNit(nit).
+        WithCodigoSistema(sistema).
+        WithCuis(cuis).
+        Build()
+
+    actResp, err := sincService.SincronizarActividades(ctx, cfg, actReq)
+    if err == nil && actResp.RespuestaListaActividades.Transaccion {
+        fmt.Println("✓ Activities synchronized")
+    }
+
+    // Sync products and services
+    prodReq := models.Sincronizacion.NewSincronizarListaProductosServiciosRequest().
+        WithCodigoAmbiente(1).
+        WithNit(nit).
+        WithCodigoSistema(sistema).
+        WithCuis(cuis).
+        Build()
+
+    prodResp, err := sincService.SincronizarListaProductosServicios(ctx, cfg, prodReq)
+    if err == nil && prodResp.RespuestaListaProductos.Transaccion {
+        fmt.Printf("✓ Synced %d products/services\n", 
+            len(prodResp.RespuestaListaProductos.ListaCodigos))
+    }
+
+    // Sync parametric catalogs
+    syncParametrics(ctx, cfg, sincService, nit, sistema, cuis)
+}
+
+func syncParametrics(ctx context.Context, cfg config.Config, 
+    service *siat.SincronizacionService, nit int64, sistema, cuis string) {
+    
+    catalogs := []struct {
+        name string
+        fn   func() error
+    }{
+        {"Document Types", func() error {
+            req := models.Sincronizacion.NewSincronizarParametricaTipoDocumentoIdentidadRequest().
+                WithCodigoAmbiente(1).WithNit(nit).WithCodigoSistema(sistema).WithCuis(cuis).Build()
+            _, err := service.SincronizarParametricaTipoDocumentoIdentidad(ctx, cfg, req)
+            return err
+        }},
+        {"Payment Methods", func() error {
+            req := models.Sincronizacion.NewSincronizarParametricaTipoMetodoPagoRequest().
+                WithCodigoAmbiente(1).WithNit(nit).WithCodigoSistema(sistema).WithCuis(cuis).Build()
+            _, err := service.SincronizarParametricaTipoMetodoPago(ctx, cfg, req)
+            return err
+        }},
+        {"Currencies", func() error {
+            req := models.Sincronizacion.NewSincronizarParametricaTipoMonedaRequest().
+                WithCodigoAmbiente(1).WithNit(nit).WithCodigoSistema(sistema).WithCuis(cuis).Build()
+            _, err := service.SincronizarParametricaTipoMoneda(ctx, cfg, req)
+            return err
+        }},
+    }
+
+    for _, cat := range catalogs {
+        if err := cat.fn(); err == nil {
+            fmt.Printf("✓ %s synchronized\n", cat.name)
+        }
+    }
+}
+```
+
+## Available Synchronization Functions
+
+### Core Catalogs
+
+| Function | Description |
+|----------|-------------|
+| `SincronizarActividades` | Economic activities (CAEB codes) |
+| `SincronizarListaProductosServicios` | Products and services (SIN codes) |
+| `SincronizarListaLeyendasFactura` | Invoice legends (legal text) |
+| `SincronizarListaActividadesDocumentoSector` | Activity-document sector mapping |
+| `SincronizarListaMensajesServicios` | Service error messages |
+
+### Parametric Catalogs
+
+| Function | Description |
+|----------|-------------|
+| `SincronizarParametricaTipoDocumentoIdentidad` | Identity document types |
+| `SincronizarParametricaTipoDocumentoSector` | Document sector types |
+| `SincronizarParametricaTipoEmision` | Emission types |
+| `SincronizarParametricaTiposFactura` | Invoice types |
+| `SincronizarParametricaTipoMetodoPago` | Payment methods |
+| `SincronizarParametricaTipoMoneda` | Currency codes |
+| `SincronizarParametricaUnidadMedida` | Units of measure |
+| `SincronizarParametricaTipoPuntoVenta` | Point of sale types |
+| `SincronizarParametricaMotivoAnulacion` | Cancellation reasons |
+| `SincronizarParametricaEventosSignificativos` | Significant events |
+| `SincronizarParametricaPaisOrigen` | Country codes |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Synchronization Schedule">
+    - Perform initial sync when setting up the system
+    - Schedule daily syncs for critical catalogs (products, activities)
+    - Weekly syncs are sufficient for stable parametric data
+    - Sync immediately after SIAT announces catalog updates
+  </Accordion>
+
+  <Accordion title="Data Storage">
+    - Store catalogs in a local database for fast lookup
+    - Index by code fields for efficient searches
+    - Track sync timestamps to identify stale data
+    - Implement soft deletes to preserve historical references
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    - Log sync failures but don't block operations
+    - Use cached data if sync fails
+    - Alert administrators when catalogs become outdated
+    - Validate that critical catalogs exist before allowing invoicing
+  </Accordion>
+
+  <Accordion title="Performance">
+    - Run synchronization in background jobs
+    - Don't sync during peak business hours
+    - Cache frequently-used catalog entries in memory
+    - Consider parallel syncing for multiple catalogs
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Point of Sale Operations" icon="cash-register" href="/guides/operaciones">
+    Register and manage points of sale
+  </Card>
+  <Card title="Invoice Submission" icon="file-invoice" href="/guides/compra-venta">
+    Create and submit electronic invoices
+  </Card>
+</CardGroup>

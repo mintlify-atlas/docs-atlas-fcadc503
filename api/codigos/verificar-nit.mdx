@@ -1,0 +1,379 @@
+---
+title: 'NIT Verification'
+description: 'Verify tax identification numbers with SIAT'
+---
+
+## Overview
+
+The NIT (Número de Identificación Tributaria) verification method allows you to validate whether a tax identification number is valid and active in the Bolivian tax registry. This is essential before issuing invoices to ensure the customer's NIT is correct.
+
+## Method Signature
+
+```go
+func (s *SiatCodigosService) VerificarNit(
+    ctx context.Context,
+    config config.Config,
+    request models.VerificarNitRequest,
+) (*soap.EnvelopeResponse[codigos.VerificarNitResponse], error)
+```
+
+## Building the Request
+
+Use the builder pattern to construct a NIT verification request:
+
+```go
+request := models.Codigos.NewVerificarNitRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("SystemCode123").
+    WithCodigoSucursal(0).
+    WithCuis("CUIS-CODE-HERE").
+    WithNit(1234567890).
+    WithNitParaVerificacion(9876543210).
+    Build()
+```
+
+## Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code:
+  - `1` - Production
+  - `2` - Testing/Development
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Operation modality code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Valid CUIS code for authentication
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Your company's tax identification number (the requester)
+</ParamField>
+
+<ParamField path="nitParaVerificacion" type="int64" required>
+  The NIT you want to verify (customer's NIT)
+</ParamField>
+
+## Response Structure
+
+```go
+type VerificarNitResponse struct {
+    RespuestaVerificarNit RespuestaVerificarNit
+}
+
+type RespuestaVerificarNit struct {
+    MensajesList []MensajeServicio
+    Transaccion  bool
+}
+
+type MensajeServicio struct {
+    Codigo      int
+    Descripcion string
+}
+```
+
+## Response Fields
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the NIT verification was successful:
+  - `true` - NIT is valid and active
+  - `false` - NIT is invalid or inactive
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages with verification results or errors
+</ResponseField>
+
+### Message Codes
+
+Common message codes returned by SIAT:
+
+- **Code 1**: NIT is valid and active
+- **Code 986**: NIT not found in the registry
+- **Code 987**: NIT is inactive
+- **Code 988**: NIT format is invalid
+
+## Example Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    cfg := config.Config{
+        Token:      "your-api-token",
+        BaseURL:    "https://pilotosiatservicios.impuestos.gob.bo",
+        Ambiente:   1,
+        Modalidad:  1,
+        Sistema:    "SystemCode123",
+        NIT:        1234567890,
+    }
+    
+    siatClient, err := client.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // NIT to verify (customer's NIT)
+    customerNIT := int64(9876543210)
+    
+    // Build request
+    request := models.Codigos.NewVerificarNitRequest().
+        WithCodigoAmbiente(cfg.Ambiente).
+        WithCodigoModalidad(cfg.Modalidad).
+        WithCodigoSistema(cfg.Sistema).
+        WithCodigoSucursal(0).
+        WithCuis("YOUR-VALID-CUIS-CODE").
+        WithNit(cfg.NIT).
+        WithNitParaVerificacion(customerNIT).
+        Build()
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.VerificarNit(ctx, request)
+    if err != nil {
+        log.Fatalf("Failed to verify NIT: %v", err)
+    }
+    
+    // Check verification result
+    if resp.Body.Response.RespuestaVerificarNit.Transaccion {
+        fmt.Printf("NIT %d is VALID and ACTIVE\n", customerNIT)
+        
+        // Display any additional messages
+        for _, msg := range resp.Body.Response.RespuestaVerificarNit.MensajesList {
+            fmt.Printf("  Message: %s (Code: %d)\n", msg.Descripcion, msg.Codigo)
+        }
+    } else {
+        fmt.Printf("NIT %d is INVALID or INACTIVE\n", customerNIT)
+        
+        // Display error messages
+        for _, msg := range resp.Body.Response.RespuestaVerificarNit.MensajesList {
+            fmt.Printf("  Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+## Practical Example: Validate Before Invoicing
+
+```go
+func validateCustomerNIT(siatClient *client.SiatClient, customerNIT int64) error {
+    request := models.Codigos.NewVerificarNitRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("SystemCode123").
+        WithCodigoSucursal(0).
+        WithCuis("YOUR-CUIS-CODE").
+        WithNit(1234567890).
+        WithNitParaVerificacion(customerNIT).
+        Build()
+    
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.VerificarNit(ctx, request)
+    if err != nil {
+        return fmt.Errorf("NIT verification request failed: %w", err)
+    }
+    
+    if !resp.Body.Response.RespuestaVerificarNit.Transaccion {
+        // Extract error details
+        var errorMessages []string
+        for _, msg := range resp.Body.Response.RespuestaVerificarNit.MensajesList {
+            errorMessages = append(errorMessages, 
+                fmt.Sprintf("Code %d: %s", msg.Codigo, msg.Descripcion))
+        }
+        
+        return fmt.Errorf("NIT %d is invalid: %v", customerNIT, errorMessages)
+    }
+    
+    return nil
+}
+
+// Usage in invoice generation flow
+func generateInvoice(siatClient *client.SiatClient, customerNIT int64) error {
+    // Step 1: Validate customer NIT
+    if err := validateCustomerNIT(siatClient, customerNIT); err != nil {
+        return fmt.Errorf("cannot generate invoice: %w", err)
+    }
+    
+    // Step 2: Proceed with invoice generation
+    fmt.Printf("NIT %d validated, proceeding with invoice...\n", customerNIT)
+    // ... invoice generation code ...
+    
+    return nil
+}
+```
+
+## Best Practices
+
+<Tip>
+  **Cache validation results**: If you frequently invoice the same customers, cache NIT validation results to reduce API calls. Consider invalidating the cache monthly.
+</Tip>
+
+<Warning>
+  **Always validate before invoicing**: Verify customer NITs before generating invoices to avoid rejected invoices and potential penalties from SIAT.
+</Warning>
+
+<Note>
+  **Test with known NITs**: During development, use known valid and invalid NITs to test your validation flow. The testing environment may have different test NITs.
+</Note>
+
+## Common Error Scenarios
+
+### NIT Not Found (Code 986)
+
+This typically means:
+- The NIT doesn't exist in the tax registry
+- The customer may have provided an incorrect NIT
+- The format might be wrong (missing or extra digits)
+
+**Solution**: Request the correct NIT from your customer or verify the number format.
+
+### NIT Inactive (Code 987)
+
+This means:
+- The NIT exists but is currently inactive in the tax registry
+- The business may be temporarily or permanently closed
+- The taxpayer may have registration issues
+
+**Solution**: Contact the customer to resolve their tax registration status before proceeding with invoicing.
+
+### Invalid Format (Code 988)
+
+This indicates:
+- The NIT format doesn't match SIAT requirements
+- May include letters or special characters when only numbers are expected
+- Incorrect number of digits
+
+**Solution**: Validate the NIT format client-side before sending to SIAT:
+- NITs are typically 7-13 digits
+- Only numeric characters are allowed
+- Remove any spaces, hyphens, or other separators
+
+## Input Validation
+
+Implement client-side validation before calling the API:
+
+```go
+import (
+    "fmt"
+    "regexp"
+    "strconv"
+)
+
+func validateNITFormat(nit string) (int64, error) {
+    // Remove any whitespace
+    nit = strings.TrimSpace(nit)
+    
+    // Check if it contains only digits
+    if matched, _ := regexp.MatchString(`^\d{7,13}$`, nit); !matched {
+        return 0, fmt.Errorf("NIT must be 7-13 digits")
+    }
+    
+    // Convert to int64
+    nitInt, err := strconv.ParseInt(nit, 10, 64)
+    if err != nil {
+        return 0, fmt.Errorf("invalid NIT format: %w", err)
+    }
+    
+    return nitInt, nil
+}
+
+// Usage
+func main() {
+    customerNITStr := "1234567890"
+    
+    customerNIT, err := validateNITFormat(customerNITStr)
+    if err != nil {
+        log.Fatalf("Invalid NIT format: %v", err)
+    }
+    
+    // Now verify with SIAT
+    // ...
+}
+```
+
+## Integration with Invoice Workflow
+
+```go
+type InvoiceService struct {
+    siatClient *client.SiatClient
+    nitCache   map[int64]time.Time  // Cache validated NITs
+}
+
+func (s *InvoiceService) CreateInvoice(customerNIT int64, items []InvoiceItem) error {
+    // Check cache first (valid for 30 days)
+    if lastValidated, exists := s.nitCache[customerNIT]; exists {
+        if time.Since(lastValidated) < 30*24*time.Hour {
+            // NIT was recently validated, skip verification
+            return s.generateInvoice(customerNIT, items)
+        }
+    }
+    
+    // Verify NIT with SIAT
+    if err := s.verifyNIT(customerNIT); err != nil {
+        return fmt.Errorf("NIT verification failed: %w", err)
+    }
+    
+    // Cache the validated NIT
+    s.nitCache[customerNIT] = time.Now()
+    
+    // Proceed with invoice generation
+    return s.generateInvoice(customerNIT, items)
+}
+
+func (s *InvoiceService) verifyNIT(nit int64) error {
+    request := models.Codigos.NewVerificarNitRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("SystemCode123").
+        WithCodigoSucursal(0).
+        WithCuis("CUIS-CODE").
+        WithNit(s.companyNIT).
+        WithNitParaVerificacion(nit).
+        Build()
+    
+    ctx := context.Background()
+    resp, err := s.siatClient.Codigos.VerificarNit(ctx, request)
+    if err != nil {
+        return err
+    }
+    
+    if !resp.Body.Response.RespuestaVerificarNit.Transaccion {
+        return fmt.Errorf("NIT %d is not valid", nit)
+    }
+    
+    return nil
+}
+```
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="CUIS Request" icon="key" href="/api/codigos/cuis">
+    Request CUIS codes (required for NIT verification)
+  </Card>
+  <Card title="Invoice Generation" icon="file-invoice" href="/api/compra-venta/recepcion-factura">
+    Generate invoices after NIT verification
+  </Card>
+</CardGroup>

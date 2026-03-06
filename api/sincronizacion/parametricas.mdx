@@ -1,0 +1,433 @@
+---
+title: 'Parametric Catalogs'
+description: 'Synchronize standard SIAT parametric catalogs'
+---
+
+Parametric catalog synchronization methods retrieve standardized lists of codes and descriptions used throughout the SIAT system.
+
+## Common Pattern
+
+All parametric synchronization methods follow the same pattern:
+
+```go
+request := models.Sincronizacion.NewSincronizarParametrica[Type]Request().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+
+response, err := client.Sincronizacion.SincronizarParametrica[Type](
+    context.Background(),
+    cfg,
+    request,
+)
+```
+
+## Common Response Structure
+
+All parametric catalogs return the same response structure:
+
+```go
+type RespuestaListaParametricas struct {
+    Transaccion  bool          // Operation success indicator
+    ListaCodigos []ListaCodigos // List of codes
+}
+
+type ListaCodigos struct {
+    CodigoClasificador uint64 // Classification code
+    Descripcion        string // Description
+}
+```
+
+## Available Parametric Catalogs
+
+### SincronizarParametricaEventosSignificativos
+
+Synchronize the catalog of significant events.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaEventosSignificativosRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaEventosSignificativos(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaMotivoAnulacion
+
+Synchronize the catalog of invoice cancellation reasons.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaMotivoAnulacionRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaMotivoAnulacion(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaPaisOrigen
+
+Synchronize the catalog of countries of origin.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaPaisOrigenRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaPaisOrigen(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoDocumentoIdentidad
+
+Synchronize the catalog of identity document types (CI, passport, etc.).
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoDocumentoIdentidadRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoDocumentoIdentidad(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoDocumentoSector
+
+Synchronize the catalog of sector document types.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoDocumentoSectorRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoDocumentoSector(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoEmision
+
+Synchronize the catalog of emission types (Online/Offline).
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoEmisionRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoEmision(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoHabitacion
+
+Synchronize the catalog of room types (Hotel sector).
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoHabitacionRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoHabitacion(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoMetodoPago
+
+Synchronize the catalog of accepted payment methods.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoMetodoPagoRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoMetodoPago(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoMoneda
+
+Synchronize the catalog of currencies.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoMonedaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoMoneda(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTipoPuntoVenta
+
+Synchronize the catalog of point of sale types.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTipoPuntoVentaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTipoPuntoVenta(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaTiposFactura
+
+Synchronize the catalog of supported invoice types.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaTiposFacturaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaTiposFactura(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+---
+
+### SincronizarParametricaUnidadMedida
+
+Synchronize the catalog of units of measure.
+
+<CodeGroup>
+```go Request
+request := models.Sincronizacion.NewSincronizarParametricaUnidadMedidaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+```go Usage
+response, err := client.Sincronizacion.SincronizarParametricaUnidadMedida(
+    context.Background(),
+    cfg,
+    request,
+)
+```
+</CodeGroup>
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    cfg := config.Config{
+        Token: "your-api-token",
+    }
+    
+    client, err := gosiat.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Synchronize payment methods
+    request := models.Sincronizacion.NewSincronizarParametricaTipoMetodoPagoRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(1234567890).
+        Build()
+    
+    response, err := client.Sincronizacion.SincronizarParametricaTipoMetodoPago(
+        context.Background(),
+        cfg,
+        request,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Transaction success: %v\n", 
+        response.RespuestaListaParametricas.Transaccion)
+    
+    for _, metodo := range response.RespuestaListaParametricas.ListaCodigos {
+        fmt.Printf("Code: %d, Method: %s\n",
+            metodo.CodigoClasificador,
+            metodo.Descripcion)
+    }
+}
+```
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="Activities" icon="briefcase" href="/api/sincronizacion/actividades">
+    Synchronize economic activities and related data
+  </Card>
+  <Card title="Products & Services" icon="box" href="/api/sincronizacion/productos-servicios">
+    Synchronize product and service catalogs
+  </Card>
+</CardGroup>

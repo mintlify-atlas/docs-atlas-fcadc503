@@ -1,0 +1,176 @@
+---
+title: 'Operaciones Service'
+description: 'Manage punto de venta (point of sale) and eventos significativos (significant events)'
+---
+
+## Overview
+
+The Operaciones service provides methods for managing punto de venta (point of sale) operations and significant event registration required by the SIAT system. This service is essential for registering and managing sales points, as well as reporting operational events that affect invoicing.
+
+## Service Access
+
+Access the Operaciones service through the SIAT client:
+
+```go
+package main
+
+import (
+    "github.com/ron86i/go-siat"
+    "log"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Access the Operaciones service
+    operaciones := client.Operaciones
+}
+```
+
+## Available Operations
+
+The Operaciones service provides two main groups of operations:
+
+### Punto de Venta Operations
+
+Manage point of sale registrations and operations:
+
+<CardGroup cols={2}>
+  <Card title="Register Punto de Venta" icon="plus" href="/api/operaciones/punto-venta#registro-punto-venta">
+    Register a new point of sale
+  </Card>
+  <Card title="Query Punto de Venta" icon="magnifying-glass" href="/api/operaciones/punto-venta#consulta-punto-venta">
+    List registered points of sale
+  </Card>
+  <Card title="Close Punto de Venta" icon="circle-xmark" href="/api/operaciones/punto-venta#cierre-punto-venta">
+    Close an existing point of sale
+  </Card>
+  <Card title="Register Comisionista" icon="handshake" href="/api/operaciones/punto-venta#registro-comisionista">
+    Register a commission agent point of sale
+  </Card>
+</CardGroup>
+
+### Significant Events
+
+Register and query operational events:
+
+<CardGroup cols={2}>
+  <Card title="Register Event" icon="calendar-plus" href="/api/operaciones/eventos-significativos#registro-evento">
+    Report a significant event
+  </Card>
+  <Card title="Query Events" icon="calendar-check" href="/api/operaciones/eventos-significativos#consulta-eventos">
+    List registered events
+  </Card>
+</CardGroup>
+
+## Common Response Structure
+
+All Operaciones service methods return a SOAP envelope response with the following structure:
+
+```go
+type EnvelopeResponse[T any] struct {
+    Body struct {
+        Response T
+    }
+}
+```
+
+The response body contains operation-specific data and a common structure:
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the operation was successful
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors from the service
+</ResponseField>
+
+## Message Service Structure
+
+Error and informational messages follow this structure:
+
+```go
+type MensajeServicio struct {
+    Codigo      int    // Error or message code
+    Descripcion string // Human-readable description
+}
+```
+
+## Context and Configuration
+
+All Operaciones methods require:
+
+<ParamField path="ctx" type="context.Context" required>
+  Context for request cancellation and timeout control
+</ParamField>
+
+<ParamField path="config" type="config.Config" required>
+  Configuration containing authentication token and other SIAT credentials:
+  
+  ```go
+  type Config struct {
+      Token string // API token for authentication
+      // Additional configuration fields...
+  }
+  ```
+</ParamField>
+
+## Error Handling
+
+Operations may fail at different levels:
+
+1. **Request Building**: Invalid request parameters
+2. **HTTP Transport**: Network or connectivity issues
+3. **SOAP Parsing**: Invalid response format
+4. **Business Logic**: SIAT service validation errors (check `mensajesList`)
+
+```go
+resp, err := client.Operaciones.RegistroPuntoVenta(ctx, config, request)
+if err != nil {
+    // Handle transport or parsing errors
+    log.Printf("Request failed: %v", err)
+    return
+}
+
+if !resp.Body.Response.Respuesta.Transaccion {
+    // Handle business logic errors
+    for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+        log.Printf("Error %d: %s", msg.Codigo, msg.Descripcion)
+    }
+}
+```
+
+## Verify Communication
+
+Test connectivity to the Operaciones service:
+
+```go
+resp, err := client.Operaciones.VerificarComunicacion(ctx, config)
+if err != nil {
+    log.Fatal("Cannot connect to Operaciones service:", err)
+}
+
+if resp.Body.Response.Respuesta.Transaccion {
+    log.Println("Operaciones service is accessible")
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Punto de Venta" icon="shop" href="/api/operaciones/punto-venta">
+    Point of sale operations
+  </Card>
+  <Card title="Eventos Significativos" icon="calendar-day" href="/api/operaciones/eventos-significativos">
+    Significant event operations
+  </Card>
+  <Card title="Codigos Service" icon="hashtag" href="/api/codigos/overview">
+    CUIS and CUFD management
+  </Card>
+  <Card title="Sincronizacion Service" icon="arrows-rotate" href="/api/sincronizacion/overview">
+    Sync parametric data
+  </Card>
+</CardGroup>

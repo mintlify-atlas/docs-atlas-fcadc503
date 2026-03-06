@@ -1,0 +1,116 @@
+---
+title: 'Codigos Service Overview'
+description: 'Overview of the Codigos service for managing SIAT codes and certificates'
+---
+
+## Introduction
+
+The Codigos Service provides methods to interact with Bolivia's SIAT (Tax Administration Service) for obtaining essential codes required for invoicing operations. This service handles:
+
+- **CUIS** (Código Único de Inicio de Sistemas) - System initialization codes
+- **CUFD** (Código Único de Facturación Diaria) - Daily invoicing codes
+- **NIT Verification** - Tax identification number validation
+- **Certificate Management** - Revoked certificate notifications
+
+## Service Methods
+
+The Codigos service is accessed through the `client.Codigos` namespace and provides the following operations:
+
+<CardGroup cols={2}>
+  <Card title="CUIS Request" icon="key" href="/api/codigos/cuis">
+    Request system initialization codes (single and bulk)
+  </Card>
+  <Card title="CUFD Request" icon="calendar" href="/api/codigos/cufd">
+    Request daily invoicing codes (single and bulk)
+  </Card>
+  <Card title="NIT Verification" icon="check" href="/api/codigos/verificar-nit">
+    Verify tax identification numbers
+  </Card>
+  <Card title="Certificate Revocation" icon="shield" href="/api/codigos/certificado-revocado">
+    Notify revoked digital certificates
+  </Card>
+</CardGroup>
+
+## Common Request Parameters
+
+Most Codigos service methods use these common parameters:
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1 for production, 2 for testing)
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Operation modality code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+## Response Structure
+
+All Codigos service responses are wrapped in a SOAP envelope structure:
+
+```go
+type EnvelopeResponse[T any] struct {
+    Body struct {
+        Response T
+    }
+}
+```
+
+### Common Response Fields
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the transaction was successful
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors from the service
+</ResponseField>
+
+### Message Service Structure
+
+```go
+type MensajeServicio struct {
+    Codigo      int    `json:"codigo"`
+    Descripcion string `json:"descripcion"`
+}
+```
+
+## Error Handling
+
+All service methods return an error as the second return value. Always check for errors before processing the response:
+
+```go
+resp, err := client.Codigos.SolicitudCuis(ctx, request)
+if err != nil {
+    return fmt.Errorf("failed to request CUIS: %w", err)
+}
+
+if !resp.Body.Response.RespuestaCuis.Transaccion {
+    // Handle service-level errors
+    for _, msg := range resp.Body.Response.RespuestaCuis.MensajesList {
+        log.Printf("Error %d: %s", msg.Codigo, msg.Descripcion)
+    }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Request CUIS" icon="arrow-right" href="/api/codigos/cuis">
+    Learn how to request system initialization codes
+  </Card>
+  <Card title="Request CUFD" icon="arrow-right" href="/api/codigos/cufd">
+    Learn how to request daily invoicing codes
+  </Card>
+</CardGroup>

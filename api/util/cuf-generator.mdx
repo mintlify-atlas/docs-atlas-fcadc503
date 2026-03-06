@@ -1,0 +1,172 @@
+---
+title: "CUF Generator"
+description: "Generate Unique Invoice Code (CUF) with verification digit"
+---
+
+## GenerarCUF
+
+Generates the complete CUF (Código Único de Factura - Unique Invoice Code) for an invoice according to Bolivian tax authority specifications.
+
+The CUF is a unique identifier that combines invoice metadata with a verification digit and is encoded in hexadecimal format. It includes a control code (CUFD) to ensure authenticity.
+
+### Function Signature
+
+```go
+func GenerarCUF(
+    nit int64,
+    fechaHora time.Time,
+    sucursal int,
+    modalidad int,
+    tipoEmision int,
+    tipoFactura int,
+    tipoDocumentoSector int,
+    numeroFactura int,
+    puntoVenta int,
+    codigoControl string,
+) (string, error)
+```
+
+### Parameters
+
+<ParamField path="nit" type="int64" required>
+  Tax identification number (NIT) of the issuer. Formatted to 13 digits.
+</ParamField>
+
+<ParamField path="fechaHora" type="time.Time" required>
+  Invoice date and time. Formatted as yyyyMMddHHmmssSSS (17 digits).
+</ParamField>
+
+<ParamField path="sucursal" type="int" required>
+  Branch office code. Formatted to 4 digits.
+</ParamField>
+
+<ParamField path="modalidad" type="int" required>
+  Invoice modality code. Formatted to 1 digit.
+</ParamField>
+
+<ParamField path="tipoEmision" type="int" required>
+  Emission type code. Formatted to 1 digit.
+</ParamField>
+
+<ParamField path="tipoFactura" type="int" required>
+  Invoice type code. Formatted to 1 digit.
+</ParamField>
+
+<ParamField path="tipoDocumentoSector" type="int" required>
+  Document sector type code. Formatted to 2 digits.
+</ParamField>
+
+<ParamField path="numeroFactura" type="int" required>
+  Sequential invoice number. Formatted to 10 digits.
+</ParamField>
+
+<ParamField path="puntoVenta" type="int" required>
+  Point of sale code. Formatted to 4 digits.
+</ParamField>
+
+<ParamField path="codigoControl" type="string" required>
+  Control code (CUFD) obtained from tax authority authorization.
+</ParamField>
+
+### Returns
+
+<ResponseField name="cuf" type="string">
+  The complete CUF in hexadecimal format with the control code appended.
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  Error if CUF generation fails.
+</ResponseField>
+
+### CUF Generation Algorithm
+
+The CUF is generated through the following steps:
+
+1. **Format Fields**: All input parameters are formatted to fixed-length strings with leading zeros:
+   - NIT: 13 digits
+   - Date/Time: 17 digits (yyyyMMddHHmmssSSS)
+   - Branch: 4 digits
+   - Modality: 1 digit
+   - Emission Type: 1 digit
+   - Invoice Type: 1 digit
+   - Document Sector: 2 digits
+   - Invoice Number: 10 digits
+   - Point of Sale: 4 digits
+
+2. **Concatenate**: All formatted fields are concatenated into a single numeric string (53 digits total).
+
+3. **Calculate Verification Digit**: A Module 11 algorithm is applied to calculate a verification digit, which is appended to the string (54 digits total).
+
+4. **Convert to Hexadecimal**: The numeric string is converted to hexadecimal (base 16) and converted to uppercase.
+
+5. **Append Control Code**: The CUFD control code is appended to create the final CUF.
+
+### Verification Digit Calculation
+
+The Module 11 algorithm (`calculaDigitoMod11`) calculates the verification digit:
+
+- Iterates through the string from right to left
+- Multiplies each digit by a factor (2-9, cycling)
+- Sums all products
+- Applies modulo 11 to the sum
+- Returns the verification digit (special handling for 10→1, 11→0)
+
+### Example
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/amvi88/go-siat/pkg/util"
+)
+
+func main() {
+    // Invoice parameters
+    nit := int64(1234567890123)
+    fechaHora := time.Now()
+    sucursal := 0
+    modalidad := 1
+    tipoEmision := 1
+    tipoFactura := 1
+    tipoDocumentoSector := 1
+    numeroFactura := 1
+    puntoVenta := 0
+    codigoControl := "ABC123DEF456"
+    
+    // Generate CUF
+    cuf, err := util.GenerarCUF(
+        nit,
+        fechaHora,
+        sucursal,
+        modalidad,
+        tipoEmision,
+        tipoFactura,
+        tipoDocumentoSector,
+        numeroFactura,
+        puntoVenta,
+        codigoControl,
+    )
+    if err != nil {
+        log.Fatalf("Error generating CUF: %v", err)
+    }
+    
+    fmt.Printf("Generated CUF: %s\n", cuf)
+    // Output: Generated CUF: 3F8A2B1C4D5E6F7A8B9C0D1E2F3A4B5CABC123DEF456
+}
+```
+
+### Notes
+
+- The CUF must be unique for each invoice
+- The control code (CUFD) must be obtained from the tax authority before generating invoices
+- All numeric fields are zero-padded to their required length
+- The date/time must include milliseconds
+- The final CUF is returned in uppercase hexadecimal format
+
+### Related
+
+- [XML Signing](/api/util/xml-signing) - Sign invoices with digital certificates

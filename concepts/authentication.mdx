@@ -1,0 +1,447 @@
+---
+title: 'Authentication'
+description: 'Learn how authentication works with the SIAT system using API tokens'
+icon: 'key'
+---
+
+## Overview
+
+The go-siat SDK uses **token-based authentication** to communicate with the SIAT (Sistema de Facturación) web services. Every request to SIAT requires a valid API token that identifies your application and authorizes access to the tax authority's services.
+
+## Authentication Flow
+
+```
+┌─────────────────┐
+│  Your App       │
+│  + API Token    │
+└────────┬────────┘
+         │
+         │ 1. Configure token
+         ▼
+┌─────────────────┐
+│  go-siat SDK    │
+└────────┬────────┘
+         │
+         │ 2. Add token to HTTP header
+         │    apiKey: TokenApi {token}
+         ▼
+┌─────────────────┐
+│  SIAT Services  │
+│  (Validates)    │
+└─────────────────┘
+```
+
+## Configuration Structure
+
+Authentication configuration is managed through the `config.Config` structure (defined in `pkg/config/config.go:3`):
+
+```go
+package config
+
+type Config struct {
+    Token string
+}
+```
+
+<Note>
+The configuration structure is intentionally simple, containing only the essential authentication token. This design keeps the API clean and focused.
+</Note>
+
+## How to Configure Authentication
+
+### Basic Configuration
+
+Create a configuration object with your API token:
+
+```go
+import "github.com/ron86i/go-siat/pkg/config"
+
+// Create configuration with your SIAT API token
+cfg := config.Config{
+    Token: "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJKb3JnZTEyMzQ...",
+}
+```
+
+### Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize SDK
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Configure authentication
+    cfg := config.Config{
+        Token: "YOUR_API_TOKEN_HERE",
+    }
+    
+    // Build request
+    req := models.Codigos.NewCuisRequest().
+        WithNit(123456789).
+        WithCodigoAmbiente(2).
+        WithCodigoSistema("ABC123XYZ").
+        WithCodigoSucursal(0).
+        WithCodigoPuntoVenta(0).
+        Build()
+    
+    // Execute authenticated request
+    ctx := context.Background()
+    resp, err := s.Codigos.SolicitudCuis(ctx, cfg, req)
+    if err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+    
+    log.Printf("CUIS: %s", resp.Body.Content.RespuestaCuis.Codigo)
+}
+```
+
+## How Authentication Works Internally
+
+When you call any service method, the SDK automatically:
+
+1. **Accepts the config**: Every service method receives a `config.Config` parameter
+2. **Builds the request**: Constructs the SOAP envelope with your data
+3. **Adds authentication header**: Injects the token into the HTTP request
+4. **Sends the request**: Executes the HTTP call to SIAT
+
+### Authentication Header Format
+
+The SDK formats the authentication header as shown in `siat_operaciones_service.go:38`:
+
+```go
+httpReq.Header.Set("Content-Type", "application/xml")
+httpReq.Header.Set("apiKey", fmt.Sprintf("TokenApi %s", config.Token))
+```
+
+The resulting HTTP header looks like:
+
+```
+apiKey: TokenApi eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiJKb3JnZTEyMzQ...
+```
+
+<Warning>
+The `TokenApi` prefix is required by SIAT and automatically added by the SDK. Do not include it in your token string.
+</Warning>
+
+## Token Management Best Practices
+
+### 1. Store Tokens Securely
+
+Never hardcode tokens in your source code. Use environment variables or secure configuration management:
+
+```go
+import "os"
+
+cfg := config.Config{
+    Token: os.Getenv("SIAT_API_TOKEN"),
+}
+
+if cfg.Token == "" {
+    log.Fatal("SIAT_API_TOKEN environment variable is required")
+}
+```
+
+### 2. Use Different Tokens per Environment
+
+Maintain separate tokens for development and production:
+
+```go
+func getConfig(env string) config.Config {
+    var tokenKey string
+    
+    switch env {
+    case "production":
+        tokenKey = "SIAT_PROD_TOKEN"
+    case "development":
+        tokenKey = "SIAT_DEV_TOKEN"
+    default:
+        log.Fatal("Invalid environment")
+    }
+    
+    return config.Config{
+        Token: os.Getenv(tokenKey),
+    }
+}
+```
+
+### 3. Implement Token Rotation
+
+If your tokens expire, implement a token refresh mechanism:
+
+```go
+type TokenManager struct {
+    currentToken string
+    expiresAt    time.Time
+    mu           sync.RWMutex
+}
+
+func (tm *TokenManager) GetConfig() config.Config {
+    tm.mu.RLock()
+    defer tm.mu.RUnlock()
+    
+    // Check if token needs refresh
+    if time.Now().After(tm.expiresAt) {
+        tm.refreshToken() // Implement your refresh logic
+    }
+    
+    return config.Config{
+        Token: tm.currentToken,
+    }
+}
+```
+
+### 4. Validate Token Format
+
+Implement basic validation before using a token:
+
+```go
+import "strings"
+
+func validateToken(token string) error {
+    token = strings.TrimSpace(token)
+    
+    if token == "" {
+        return fmt.Errorf("token cannot be empty")
+    }
+    
+    // Basic JWT format check (3 parts separated by dots)
+    parts := strings.Split(token, ".")
+    if len(parts) != 3 {
+        return fmt.Errorf("invalid token format")
+    }
+    
+    return nil
+}
+
+cfg := config.Config{
+    Token: os.Getenv("SIAT_API_TOKEN"),
+}
+
+if err := validateToken(cfg.Token); err != nil {
+    log.Fatalf("Invalid token: %v", err)
+}
+```
+
+## Authentication Across All Services
+
+All four service groups use the same authentication mechanism:
+
+### Codigos Service
+
+```go
+resp, err := s.Codigos.SolicitudCuis(ctx, cfg, req)
+```
+
+### Sincronizacion Service
+
+```go
+resp, err := s.Sincronizacion.SincronizarActividades(ctx, cfg, req)
+```
+
+### Operaciones Service
+
+```go
+resp, err := s.Operaciones.RegistroPuntoVenta(ctx, cfg, req)
+```
+
+### CompraVenta Service
+
+```go
+resp, err := s.CompraVenta.RecepcionFactura(ctx, cfg, req)
+```
+
+<Info>
+You can use the same `config.Config` instance across all service calls, or create different configs for different use cases.
+</Info>
+
+## Troubleshooting Authentication Errors
+
+### Common Authentication Issues
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| HTTP 401 Unauthorized | Invalid or expired token | Verify token is correct and not expired |
+| HTTP 403 Forbidden | Token lacks required permissions | Check token has access to requested service |
+| SOAP Fault | Token format issue | Ensure token doesn't include "TokenApi" prefix |
+| Connection timeout | Network or endpoint issue | Verify base URL and network connectivity |
+
+### Debugging Authentication
+
+Enable logging to debug authentication issues:
+
+```go
+import (
+    "log"
+    "net/http"
+    "net/http/httputil"
+)
+
+// Create custom HTTP client with request logging
+type LoggingTransport struct {
+    Transport http.RoundTripper
+}
+
+func (t *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+    // Log request headers (excluding sensitive data in production)
+    log.Printf("Request URL: %s", req.URL)
+    log.Printf("Request Headers: %v", req.Header)
+    
+    // Perform the actual request
+    transport := t.Transport
+    if transport == nil {
+        transport = http.DefaultTransport
+    }
+    return transport.RoundTrip(req)
+}
+
+client := &http.Client{
+    Transport: &LoggingTransport{},
+    Timeout:   15 * time.Second,
+}
+
+s, err := siat.New(baseURL, client)
+```
+
+<Warning>
+Never log full tokens in production environments. Use redacted logging or secure audit trails.
+</Warning>
+
+## Security Considerations
+
+<AccordionGroup>
+  <Accordion title="Token Storage">
+    - Never commit tokens to version control
+    - Use secret management systems (AWS Secrets Manager, HashiCorp Vault, etc.)
+    - Encrypt tokens at rest
+    - Use environment-specific tokens
+  </Accordion>
+  
+  <Accordion title="Token Transmission">
+    - Always use HTTPS endpoints (required by SIAT)
+    - The SDK automatically uses secure connections
+    - Tokens are only sent in HTTP headers, never in URLs or query parameters
+  </Accordion>
+  
+  <Accordion title="Token Rotation">
+    - Implement regular token rotation policies
+    - Monitor token usage and expiration
+    - Have a process for emergency token revocation
+    - Maintain backup authentication credentials
+  </Accordion>
+  
+  <Accordion title="Access Control">
+    - Limit token access to authorized personnel only
+    - Use role-based access control for token management
+    - Audit token usage regularly
+    - Implement least-privilege principle
+  </Accordion>
+</AccordionGroup>
+
+## Testing with Authentication
+
+### Mock Configuration for Testing
+
+```go
+func TestServiceWithAuth(t *testing.T) {
+    // Use a test token
+    testCfg := config.Config{
+        Token: "test-token-for-unit-tests",
+    }
+    
+    // Your test logic here
+}
+```
+
+### Integration Testing
+
+For integration tests, use a separate test environment token:
+
+```go
+func setupTestConfig() config.Config {
+    return config.Config{
+        Token: os.Getenv("SIAT_TEST_TOKEN"),
+    }
+}
+
+func TestCuisRequest(t *testing.T) {
+    if testing.Short() {
+        t.Skip("Skipping integration test")
+    }
+    
+    cfg := setupTestConfig()
+    if cfg.Token == "" {
+        t.Fatal("SIAT_TEST_TOKEN required for integration tests")
+    }
+    
+    // Integration test logic...
+}
+```
+
+## Configuration Patterns
+
+### Singleton Pattern
+
+For applications with a single configuration:
+
+```go
+var (
+    cfg     config.Config
+    cfgOnce sync.Once
+)
+
+func GetConfig() config.Config {
+    cfgOnce.Do(func() {
+        cfg = config.Config{
+            Token: os.Getenv("SIAT_API_TOKEN"),
+        }
+    })
+    return cfg
+}
+```
+
+### Factory Pattern
+
+For multi-tenant applications:
+
+```go
+type ConfigFactory struct {
+    configs map[string]config.Config
+    mu      sync.RWMutex
+}
+
+func (cf *ConfigFactory) GetConfig(tenantID string) (config.Config, error) {
+    cf.mu.RLock()
+    defer cf.mu.RUnlock()
+    
+    cfg, exists := cf.configs[tenantID]
+    if !exists {
+        return config.Config{}, fmt.Errorf("config not found for tenant: %s", tenantID)
+    }
+    
+    return cfg, nil
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environments" icon="server" href="/concepts/environments">
+    Learn about development vs production environments
+  </Card>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Start building with authenticated requests
+  </Card>
+</CardGroup>

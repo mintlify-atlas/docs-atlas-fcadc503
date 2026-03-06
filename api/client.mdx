@@ -1,0 +1,240 @@
+---
+title: 'Client Initialization'
+description: 'Initialize the go-siat client to access SIAT services'
+---
+
+## Overview
+
+The `siat.New()` function creates and initializes a new instance of the SIAT services client. This is the entry point for interacting with all SIAT API services including operations, synchronization, codes, and sales.
+
+## Function Signature
+
+```go
+func New(baseUrl string, httpClient *http.Client) (*siatServices, error)
+```
+
+## Parameters
+
+<ParamField path="baseUrl" type="string" required>
+  The base URL of the SIAT service. Use the appropriate URL for your environment:
+  - **Testing**: `https://pilotosiatservicios.impuestos.gob.bo`
+  - **Production**: `https://siatservicios.impuestos.gob.bo`
+  
+  The URL cannot be empty or whitespace-only.
+</ParamField>
+
+<ParamField path="httpClient" type="*http.Client" default="nil">
+  Optional HTTP client for making requests. If `nil`, a default client with a 15-second timeout is used.
+  
+  Provide a custom client to configure:
+  - Custom timeouts
+  - Proxy settings
+  - TLS configuration
+  - Connection pooling
+</ParamField>
+
+## Return Values
+
+<ResponseField name="*siatServices" type="struct">
+  A pointer to the initialized SIAT services client with access to all service modules.
+</ResponseField>
+
+<ResponseField name="error" type="error">
+  An error if initialization fails (e.g., empty base URL or service initialization error).
+</ResponseField>
+
+## Available Services
+
+The returned `siatServices` struct provides access to four main service modules:
+
+<ResponseField name="Operaciones" type="*SiatOperacionesService">
+  Service for managing operations like punto de venta (point of sale) and eventos significativos (significant events).
+  
+  See the [Operaciones Service](/api/operaciones/overview) reference for details.
+</ResponseField>
+
+<ResponseField name="Sincronizacion" type="*SiatSincronizacionService">
+  Service for synchronizing data from SIAT including activities, parametric tables, and product/service catalogs.
+  
+  See the [Sincronizacion Service](/api/sincronizacion/overview) reference for details.
+</ResponseField>
+
+<ResponseField name="Codigos" type="*SiatCodigosService">
+  Service for managing codes like CUIS (Sistema Integrado Único), CUFD (Código Único de Factura Diaria), and NIT verification.
+  
+  See the [Codigos Service](/api/codigos/overview) reference for details.
+</ResponseField>
+
+<ResponseField name="CompraVenta" type="*SiatCompraVentaService">
+  Service for invoice operations including reception, cancellation, and building invoices.
+  
+  See the [Compra Venta Service](/api/compra-venta/overview) reference for details.
+</ResponseField>
+
+## Examples
+
+### Basic Initialization
+
+Initialize the client with default settings for the testing environment:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+)
+
+func main() {
+    // Initialize with default HTTP client
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatalf("Failed to initialize SIAT client: %v", err)
+    }
+    
+    // Access services
+    fmt.Println("Client initialized successfully")
+    fmt.Printf("Operaciones service: %v\n", client.Operaciones)
+    fmt.Printf("Codigos service: %v\n", client.Codigos)
+}
+```
+
+### Custom HTTP Client
+
+Configure a custom HTTP client with specific timeout and transport settings:
+
+```go
+package main
+
+import (
+    "log"
+    "net/http"
+    "time"
+    
+    "github.com/ron86i/go-siat"
+)
+
+func main() {
+    // Create custom HTTP client with 30-second timeout
+    httpClient := &http.Client{
+        Timeout: 30 * time.Second,
+        Transport: &http.Transport{
+            MaxIdleConns:        100,
+            MaxIdleConnsPerHost: 10,
+            IdleConnTimeout:     90 * time.Second,
+        },
+    }
+    
+    // Initialize with custom client
+    client, err := siat.New(
+        "https://pilotosiatservicios.impuestos.gob.bo",
+        httpClient,
+    )
+    if err != nil {
+        log.Fatalf("Failed to initialize SIAT client: %v", err)
+    }
+    
+    // Use the client
+    _ = client
+}
+```
+
+### Production Environment
+
+Initialize the client for production use:
+
+```go
+package main
+
+import (
+    "log"
+    "net/http"
+    "time"
+    
+    "github.com/ron86i/go-siat"
+)
+
+func main() {
+    // Production URL
+    productionURL := "https://siatservicios.impuestos.gob.bo"
+    
+    // Configure for production with longer timeout
+    httpClient := &http.Client{
+        Timeout: 60 * time.Second,
+    }
+    
+    client, err := siat.New(productionURL, httpClient)
+    if err != nil {
+        log.Fatalf("Failed to initialize production client: %v", err)
+    }
+    
+    // Ready for production use
+    _ = client
+}
+```
+
+### Error Handling
+
+Handle initialization errors properly:
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+)
+
+func initializeClient(baseURL string) (*siat.SiatServices, error) {
+    client, err := siat.New(baseURL, nil)
+    if err != nil {
+        return nil, fmt.Errorf("client initialization failed: %w", err)
+    }
+    return client, nil
+}
+
+func main() {
+    // This will fail - empty URL
+    _, err := initializeClient("")
+    if err != nil {
+        log.Printf("Expected error: %v\n", err)
+    }
+    
+    // This will succeed
+    client, err := initializeClient("https://pilotosiatservicios.impuestos.gob.bo")
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Println("Client initialized:", client != nil)
+}
+```
+
+## Notes
+
+- The base URL is trimmed of leading/trailing whitespace before validation
+- If no HTTP client is provided, a default client with a 15-second timeout is created automatically
+- All service modules (Operaciones, Sincronizacion, Codigos, CompraVenta) are initialized during client creation
+- If any service fails to initialize, the entire client initialization fails and returns an error
+- The client is thread-safe and can be reused across goroutines
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Codigos Service" icon="hashtag" href="/api/codigos/overview">
+    Manage CUIS, CUFD, and NIT verification
+  </Card>
+  <Card title="Sincronizacion Service" icon="arrows-rotate" href="/api/sincronizacion/overview">
+    Sync activities and parametric data
+  </Card>
+  <Card title="Operaciones Service" icon="gears" href="/api/operaciones/overview">
+    Manage punto de venta and events
+  </Card>
+  <Card title="Compra Venta Service" icon="file-invoice" href="/api/compra-venta/overview">
+    Handle invoice operations
+  </Card>
+</CardGroup>

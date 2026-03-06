@@ -1,0 +1,353 @@
+---
+title: 'RecepcionFactura'
+description: 'Submit invoices to SIAT for processing and validation'
+icon: 'paper-plane'
+---
+
+## Overview
+
+The `RecepcionFactura` method submits a signed, compressed, and encoded invoice to SIAT for processing. This is the primary method for sending electronic invoices to the tax authority.
+
+## Method Signature
+
+```go
+func (s *SiatCompraVentaService) RecepcionFactura(
+    ctx context.Context,
+    config config.Config,
+    request RecepcionFacturaRequest,
+) (*soap.EnvelopeResponse[compra_venta.RecepcionFacturaResponse], error)
+```
+
+## Parameters
+
+<ParamField path="ctx" type="context.Context" required>
+  Go context for request lifecycle management, cancellation, and timeouts
+</ParamField>
+
+<ParamField path="config" type="config.Config" required>
+  Configuration containing the API token for authentication
+  
+  ```go
+  type Config struct {
+      Token string // API key from SIAT
+  }
+  ```
+</ParamField>
+
+<ParamField path="request" type="RecepcionFacturaRequest" required>
+  Opaque request built using `models.CompraVenta.NewRecepcionFacturaRequest()` builder
+</ParamField>
+
+## Building the Request
+
+Use the `RecepcionFacturaBuilder` to construct the request:
+
+```go
+request := models.CompraVenta.NewRecepcionFacturaRequest().
+    WithCodigoAmbiente(2).              // 2 = Producción, 1 = Pruebas
+    WithCodigoDocumentoSector(1).       // Tipo de documento sector
+    WithCodigoEmision(1).               // 1 = En línea
+    WithCodigoModalidad(1).             // 1 = Electrónica
+    WithCodigoPuntoVenta(0).            // Código del punto de venta
+    WithCodigoSistema("ABC123DEF").     // Código del sistema registrado
+    WithCodigoSucursal(0).              // Código de la sucursal
+    WithCufd("CODIGO_CUFD").            // CUFD vigente
+    WithCuis("C2FC682B").               // CUIS del punto de venta
+    WithNit(123456789).                 // NIT del emisor
+    WithTipoFacturaDocumento(1).        // Tipo de factura
+    WithArchivo(encodedBytes).          // Archivo comprimido y codificado
+    WithFechaEnvio(datatype.TimeSiat(time.Now())). // Fecha de envío
+    WithHashArchivo(hashString).        // Hash SHA256 del archivo comprimido
+    Build()
+```
+
+### Request Fields
+
+<ParamField path="CodigoAmbiente" type="int" required>
+  Execution environment: `1` = Testing, `2` = Production
+</ParamField>
+
+<ParamField path="CodigoDocumentoSector" type="int" required>
+  Document sector type code from SIAT catalogs
+</ParamField>
+
+<ParamField path="CodigoEmision" type="int" required>
+  Emission type: `1` = Online, `2` = Offline
+</ParamField>
+
+<ParamField path="CodigoModalidad" type="int" required>
+  Modality code: `1` = Electronic, `2` = Computer/Manual
+</ParamField>
+
+<ParamField path="CodigoPuntoVenta" type="int" required>
+  Point of sale code registered in SIAT
+</ParamField>
+
+<ParamField path="CodigoSistema" type="string" required>
+  System code obtained during system registration
+</ParamField>
+
+<ParamField path="CodigoSucursal" type="int" required>
+  Branch/office code registered in SIAT
+</ParamField>
+
+<ParamField path="Cufd" type="string" required>
+  CUFD (Código Único de Factura Diario) - daily invoice code, must be valid
+</ParamField>
+
+<ParamField path="Cuis" type="string" required>
+  CUIS (Código Único de Inicio de Sistema) - system initialization code
+</ParamField>
+
+<ParamField path="Nit" type="int64" required>
+  Tax identification number (NIT) of the issuer
+</ParamField>
+
+<ParamField path="TipoFacturaDocumento" type="int" required>
+  Invoice/document type code from SIAT catalogs
+</ParamField>
+
+<ParamField path="Archivo" type="[]byte" required>
+  Base64-encoded string of the gzip-compressed signed XML invoice
+</ParamField>
+
+<ParamField path="FechaEnvio" type="datatype.TimeSiat" required>
+  Date and time when the invoice is sent
+</ParamField>
+
+<ParamField path="HashArchivo" type="string" required>
+  SHA256 hash (hexadecimal) of the compressed invoice file
+</ParamField>
+
+## Response
+
+Returns a SOAP envelope containing `RecepcionFacturaResponse`:
+
+```go
+type RecepcionFacturaResponse struct {
+    RespuestaServicioFacturacion RespuestaServicioFacturacion
+}
+
+type RespuestaServicioFacturacion struct {
+    Transaccion       bool
+    CodigoRecepcion   string
+    CodigoEstado      int
+    CodigoDescripcion string
+    MensajesList      []MensajeServicio
+}
+```
+
+<ParamField path="Transaccion" type="boolean">
+  `true` if the invoice was successfully accepted, `false` otherwise
+</ParamField>
+
+<ParamField path="CodigoRecepcion" type="string">
+  Unique reception code assigned by SIAT (present on success)
+</ParamField>
+
+<ParamField path="CodigoEstado" type="int">
+  Status code indicating the result of the operation
+</ParamField>
+
+<ParamField path="CodigoDescripcion" type="string">
+  Human-readable description of the operation result
+</ParamField>
+
+<ParamField path="MensajesList" type="[]MensajeServicio">
+  List of validation messages, warnings, or errors
+  
+  Each message contains:
+  - `Codigo` (int): Message code
+  - `Descripcion` (string): Message description
+</ParamField>
+
+## Complete Example
+
+Here's a complete workflow for submitting an invoice:
+
+```go
+package main
+
+import (
+    "bytes"
+    "compress/gzip"
+    "context"
+    "crypto/sha256"
+    "encoding/base64"
+    "encoding/hex"
+    "encoding/xml"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/internal/core/domain/datatype"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // 1. Initialize SIAT client
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+
+    // 2. Generate CUF
+    nit := int64(123456789)
+    fechaEmision := time.Now()
+    cuf, err := models.CompraVenta.GenerarCUF(
+        nit, fechaEmision, 0, 1, 1, 1, 1, 1, 0, "XYZ789",
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 3. Build invoice using builders
+    cabecera := models.CompraVenta.NewCabecera().
+        WithNitEmisor(nit).
+        WithRazonSocialEmisor("Mi Empresa S.A.").
+        WithMunicipio("La Paz").
+        WithNumeroFactura(1).
+        WithCuf(cuf).
+        WithCufd("CUFD_VALIDO").
+        WithCodigoSucursal(0).
+        WithDireccion("Av. Principal 123").
+        WithCodigoPuntoVenta(0).
+        WithFechaEmision(fechaEmision.Format("2006-01-02T15:04:05.000")).
+        WithNombreRazonSocial("JUAN PEREZ").
+        WithCodigoTipoDocumentoIdentidad(1).
+        WithNumeroDocumento("5544332").
+        WithCodigoCliente("CLI-001").
+        WithCodigoMetodoPago(1).
+        WithMontoTotal(100.0).
+        WithMontoTotalSujetoIva(100.0).
+        WithCodigoMoneda(1).
+        WithTipoCambio(1.0).
+        WithMontoTotalMoneda(100.0).
+        WithLeyenda("Ley N° 453: El proveedor deberá suministrar el servicio...").
+        WithUsuario("admin").
+        WithCodigoDocumentoSector(1).
+        Build()
+
+    detalle := models.CompraVenta.NewDetalle().
+        WithActividadEconomica("461000").
+        WithCodigoProductoSin("12345").
+        WithCodigoProducto("PROD-001").
+        WithDescripcion("Producto de prueba").
+        WithCantidad(1.0).
+        WithUnidadMedida(57).
+        WithPrecioUnitario(100.0).
+        WithSubTotal(100.0).
+        Build()
+
+    factura := models.CompraVenta.NewFactura().
+        WithCabecera(cabecera).
+        AddDetalle(detalle).
+        Build()
+
+    // 4. Marshal to XML
+    xmlData, err := xml.Marshal(factura)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // 5. Sign XML (optional if you have certificates)
+    signedXML, err := models.CompraVenta.SignXML(xmlData, "key.pem", "cert.crt")
+    if err != nil {
+        // If signing fails, use unsigned XML for testing
+        signedXML = xmlData
+    }
+
+    // 6. Compress with Gzip
+    var buf bytes.Buffer
+    gzipWriter := gzip.NewWriter(&buf)
+    if _, err := gzipWriter.Write(signedXML); err != nil {
+        log.Fatal(err)
+    }
+    gzipWriter.Close()
+    compressedBytes := buf.Bytes()
+
+    // 7. Calculate SHA256 hash of compressed bytes
+    hash := sha256.Sum256(compressedBytes)
+    hashString := hex.EncodeToString(hash[:])
+
+    // 8. Encode to Base64
+    encodedArchivo := base64.StdEncoding.EncodeToString(compressedBytes)
+
+    // 9. Build reception request
+    request := models.CompraVenta.NewRecepcionFacturaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoDocumentoSector(1).
+        WithCodigoEmision(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123DEF").
+        WithCodigoSucursal(0).
+        WithCufd("CUFD_VALIDO").
+        WithCuis("C2FC682B").
+        WithNit(nit).
+        WithTipoFacturaDocumento(1).
+        WithArchivo([]byte(encodedArchivo)).
+        WithFechaEnvio(datatype.TimeSiat(fechaEmision)).
+        WithHashArchivo(hashString).
+        Build()
+
+    // 10. Submit to SIAT
+    resp, err := client.CompraVenta.RecepcionFactura(ctx, cfg, request)
+    if err != nil {
+        log.Fatalf("Error submitting invoice: %v", err)
+    }
+
+    // 11. Check response
+    if resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+        fmt.Printf("Success! Reception code: %s\n",
+            resp.Body.Content.RespuestaServicioFacturacion.CodigoRecepcion)
+    } else {
+        fmt.Printf("Invoice rejected: %s\n",
+            resp.Body.Content.RespuestaServicioFacturacion.CodigoDescripcion)
+        for _, msg := range resp.Body.Content.RespuestaServicioFacturacion.MensajesList {
+            fmt.Printf("  [%d] %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+## Error Handling
+
+Handle both network errors and SIAT validation errors:
+
+```go
+resp, err := client.CompraVenta.RecepcionFactura(ctx, cfg, request)
+if err != nil {
+    // Network or HTTP error
+    log.Printf("Request failed: %v", err)
+    return
+}
+
+// Check SIAT response
+if !resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+    // SIAT rejected the invoice
+    log.Printf("SIAT error: %s",
+        resp.Body.Content.RespuestaServicioFacturacion.CodigoDescripcion)
+    
+    // Log all validation messages
+    for _, msg := range resp.Body.Content.RespuestaServicioFacturacion.MensajesList {
+        log.Printf("  Code %d: %s", msg.Codigo, msg.Descripcion)
+    }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Invoice Builder" icon="hammer" href="/api/compra-venta/factura-builder">
+    Learn how to build invoices with Cabecera and Detalle
+  </Card>
+  <Card title="AnulacionFactura" icon="ban" href="/api/compra-venta/anulacion-factura">
+    Cancel a previously submitted invoice
+  </Card>
+</CardGroup>

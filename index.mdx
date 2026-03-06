@@ -1,97 +1,124 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "go-siat"
+description: "A robust Go SDK for integrating with Bolivia's SIAT (Sistema de Facturación) SOAP web services"
 ---
 
-## Setting up
+<div className="relative py-12 sm:py-16">
+  <div className="text-center">
+    <h1 className="text-4xl font-bold tracking-tight sm:text-6xl mb-4" style={{color: '#1a1a1a'}}>
+      Go SDK for Bolivia's SIAT
+    </h1>
+    <p className="mt-6 text-lg leading-8" style={{color: '#545454'}}>
+      A production-ready Go SDK for integrating with the Sistema de Facturación (SIAT) web services
+    </p>
+    <div className="mt-10 flex items-center justify-center gap-x-6">
+      <a
+        href="/quickstart"
+        className="rounded-md px-6 py-3 text-sm font-semibold shadow-sm"
+        style={{backgroundColor: '#94cb04', color: '#1a1a1a', borderRadius: '6px'}}
+      >
+        Get Started
+      </a>
+      <a href="/api/client" className="text-sm font-semibold leading-6" style={{color: '#545454'}}>
+        View API Reference <span aria-hidden="true">→</span>
+      </a>
+    </div>
+  </div>
+</div>
 
-Get your documentation site up and running in minutes.
+## Key Features
 
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Code Management" icon="key" href="/guides/codigos">
+    Request CUIS and CUFD codes for system initialization and daily operations
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Invoice Processing" icon="file-invoice" href="/guides/compra-venta">
+    Submit and manage electronic invoices with XML signing and compression
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Catalog Sync" icon="sync" href="/guides/sincronizacion">
+    Synchronize activities, parameters, and product catalogs from SIAT
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Point of Sale" icon="store" href="/guides/operaciones">
+    Register and manage point of sale operations and significant events
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Quick Example
 
-Everything you need to create world-class documentation.
+Get started with go-siat in just a few lines of code:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+```go main.go
+package main
 
-## Need inspiration?
+import (
+    "context"
+    "log"
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+func main() {
+    // Initialize the SDK
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Create a CUIS request using the builder pattern
+    req := models.Codigos.NewCuisRequest().
+        WithNit(123456789).
+        WithCodigoAmbiente(2).
+        WithCodigoSistema("ABC123XYZ").
+        Build()
+
+    // Execute the operation
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+    
+    resp, err := s.Codigos.SolicitudCuis(ctx, cfg, req)
+    if err == nil {
+        log.Println("CUIS:", resp.Body.Content.RespuestaCuis.Codigo)
+    }
+}
+```
+
+## Why go-siat?
+
+<CardGroup cols={3}>
+  <Card title="Type-Safe" icon="shield-check">
+    Builder pattern API ensures compile-time safety and reduces runtime errors
+  </Card>
+  <Card title="Production Ready" icon="badge-check">
+    Battle-tested implementation with comprehensive error handling
+  </Card>
+  <Card title="Complete Coverage" icon="list-check">
+    Supports all major SIAT operations including codes, invoicing, and catalogs
+  </Card>
+  <Card title="XML Signing" icon="signature">
+    Built-in XML digital signature support for secure invoice submission
+  </Card>
+  <Card title="Easy to Use" icon="wand-magic-sparkles">
+    Intuitive API design with clear documentation and examples
+  </Card>
+  <Card title="MIT Licensed" icon="scale-balanced">
+    Free and open source under the permissive MIT license
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="/installation">
+    Install go-siat in your Go project
+  </Card>
+  <Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+    Build your first SIAT integration
+  </Card>
+  <Card title="Core Concepts" icon="book" href="/concepts/architecture">
+    Learn about the SDK architecture
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/client">
+    Explore the complete API documentation
+  </Card>
+</CardGroup>

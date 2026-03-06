@@ -1,0 +1,147 @@
+---
+title: 'Sincronizacion Service Overview'
+description: 'Synchronize catalogs and parametric data from SIAT'
+---
+
+The Sincronizacion service provides methods to synchronize various catalogs and parametric data from the SIAT system. This is essential for keeping your application up-to-date with the latest tax authority information.
+
+## Service Overview
+
+The Sincronizacion service allows you to:
+
+- Synchronize economic activities
+- Get parametric catalogs (document types, currencies, payment methods, etc.)
+- Synchronize products and services
+- Retrieve invoice legends and messages
+
+## Generic Builder Pattern
+
+All synchronization requests use a generic builder pattern for consistent configuration:
+
+```go
+request := models.Sincronizacion.NewSincronizarActividadesRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+## Common Request Parameters
+
+All synchronization requests share these common parameters:
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=production, 2=development)
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int" required>
+  Point of sale code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  CUIS (Código Único de Inicio de Sesión)
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Tax identification number (NIT)
+</ParamField>
+
+## Service Categories
+
+The synchronization service is organized into three main categories:
+
+### Activities
+Synchronize economic activities and related catalogs:
+- Economic activities
+- Activity-document sector relationships
+- Invoice legends
+- Service messages
+
+### Parametric Catalogs
+Synchronize standard SIAT parametric catalogs:
+- Document types (identity, sector, invoice)
+- Payment methods
+- Currencies
+- Countries of origin
+- Units of measure
+- And more...
+
+### Products and Services
+Synchronize the product and service catalog associated with your activities.
+
+## Usage Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    cfg := config.Config{
+        Token: "your-api-token",
+    }
+    
+    client, err := gosiat.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Build synchronization request
+    request := models.Sincronizacion.NewSincronizarActividadesRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(1234567890).
+        Build()
+    
+    // Execute synchronization
+    response, err := client.Sincronizacion.SincronizarActividades(
+        context.Background(),
+        cfg,
+        request,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    fmt.Printf("Transaction success: %v\n", 
+        response.RespuestaListaActividades.Transaccion)
+    fmt.Printf("Activities: %d\n", 
+        len(response.RespuestaListaActividades.ListaActividades))
+}
+```
+
+## Next Steps
+
+<CardGroup cols={3}>
+  <Card title="Activities" icon="briefcase" href="/api/sincronizacion/actividades">
+    Synchronize economic activities and related data
+  </Card>
+  <Card title="Parametric Catalogs" icon="list" href="/api/sincronizacion/parametricas">
+    Synchronize standard SIAT parametric catalogs
+  </Card>
+  <Card title="Products & Services" icon="box" href="/api/sincronizacion/productos-servicios">
+    Synchronize product and service catalogs
+  </Card>
+</CardGroup>

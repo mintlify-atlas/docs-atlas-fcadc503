@@ -1,0 +1,466 @@
+---
+title: 'Certificate Revocation Notification'
+description: 'Notify SIAT about revoked digital certificates'
+---
+
+## Overview
+
+The Certificate Revocation method allows you to notify SIAT when a digital certificate has been compromised or is no longer valid. This is a critical security procedure that ensures future digital signatures associated with the revoked certificate are not processed.
+
+## Method Signature
+
+```go
+func (s *SiatCodigosService) NotificaCertificadoRevocado(
+    ctx context.Context,
+    config config.Config,
+    request models.NotificaCertificadoRevocadoRequest,
+) (*soap.EnvelopeResponse[codigos.NotificaCertificadoRevocadoResponse], error)
+```
+
+## Building the Request
+
+Use the builder pattern to construct a certificate revocation notification:
+
+```go
+import "time"
+
+revocationDate := time.Now()
+
+request := models.Codigos.NewNotificaCertificadoRevocadoRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoSistema("SystemCode123").
+    WithCodigoSucursal(0).
+    WithCuis("CUIS-CODE-HERE").
+    WithNit(1234567890).
+    WithCertificado("BASE64-ENCODED-CERTIFICATE").
+    WithRazonRevocacion("Certificate compromised due to security breach").
+    WithFechaRevocacion(&revocationDate).
+    Build()
+```
+
+## Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code:
+  - `1` - Production
+  - `2` - Testing/Development
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code where the certificate was used
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Valid CUIS code for authentication
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+<ParamField path="certificado" type="string" required>
+  Base64-encoded digital certificate that is being revoked
+</ParamField>
+
+<ParamField path="razonRevocacion" type="string" required>
+  Reason for the certificate revocation. Should clearly explain why the certificate is being revoked
+</ParamField>
+
+<ParamField path="fechaRevocacion" type="*time.Time" required>
+  Date and time when the certificate was revoked
+</ParamField>
+
+## Response Structure
+
+```go
+type NotificaCertificadoRevocadoResponse struct {
+    RespuestaNotificaRevocado RespuestaNotificaRevocado
+}
+
+type RespuestaNotificaRevocado struct {
+    MensajesList []MensajeServicio
+    Transaccion  bool
+}
+
+type MensajeServicio struct {
+    Codigo      int
+    Descripcion string
+}
+```
+
+## Response Fields
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the revocation notification was successfully processed:
+  - `true` - Certificate revocation recorded successfully
+  - `false` - Revocation notification failed
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages with confirmation or error details
+</ResponseField>
+
+## Example Usage
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/base64"
+    "fmt"
+    "log"
+    "os"
+    "time"
+    
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    cfg := config.Config{
+        Token:      "your-api-token",
+        BaseURL:    "https://pilotosiatservicios.impuestos.gob.bo",
+        Ambiente:   1,
+        Sistema:    "SystemCode123",
+        NIT:        1234567890,
+    }
+    
+    siatClient, err := client.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Read the certificate file
+    certData, err := os.ReadFile("path/to/certificate.pem")
+    if err != nil {
+        log.Fatalf("Failed to read certificate: %v", err)
+    }
+    
+    // Encode certificate to base64
+    certBase64 := base64.StdEncoding.EncodeToString(certData)
+    
+    // Set revocation date
+    revocationDate := time.Now()
+    
+    // Build request
+    request := models.Codigos.NewNotificaCertificadoRevocadoRequest().
+        WithCodigoAmbiente(cfg.Ambiente).
+        WithCodigoSistema(cfg.Sistema).
+        WithCodigoSucursal(0).
+        WithCuis("YOUR-VALID-CUIS-CODE").
+        WithNit(cfg.NIT).
+        WithCertificado(certBase64).
+        WithRazonRevocacion("Certificate private key was compromised").
+        WithFechaRevocacion(&revocationDate).
+        Build()
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.NotificaCertificadoRevocado(ctx, request)
+    if err != nil {
+        log.Fatalf("Failed to notify certificate revocation: %v", err)
+    }
+    
+    // Check response
+    if resp.Body.Response.RespuestaNotificaRevocado.Transaccion {
+        fmt.Println("Certificate revocation notification successful")
+        
+        // Display confirmation messages
+        for _, msg := range resp.Body.Response.RespuestaNotificaRevocado.MensajesList {
+            fmt.Printf("  Message: %s (Code: %d)\n", msg.Descripcion, msg.Codigo)
+        }
+    } else {
+        fmt.Println("Certificate revocation notification failed")
+        
+        // Display error messages
+        for _, msg := range resp.Body.Response.RespuestaNotificaRevocado.MensajesList {
+            fmt.Printf("  Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+## Practical Example: Automated Revocation Workflow
+
+```go
+package main
+
+import (
+    "context"
+    "encoding/base64"
+    "fmt"
+    "time"
+    
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+type CertificateManager struct {
+    siatClient *client.SiatClient
+    companyNIT int64
+    codigoSistema string
+}
+
+func (cm *CertificateManager) RevokeCertificate(
+    certData []byte,
+    reason string,
+    branch int,
+    cuis string,
+) error {
+    // Encode certificate
+    certBase64 := base64.StdEncoding.EncodeToString(certData)
+    
+    // Current timestamp
+    revocationDate := time.Now()
+    
+    // Build revocation request
+    request := models.Codigos.NewNotificaCertificadoRevocadoRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoSistema(cm.codigoSistema).
+        WithCodigoSucursal(branch).
+        WithCuis(cuis).
+        WithNit(cm.companyNIT).
+        WithCertificado(certBase64).
+        WithRazonRevocacion(reason).
+        WithFechaRevocacion(&revocationDate).
+        Build()
+    
+    // Send notification to SIAT
+    ctx := context.Background()
+    resp, err := cm.siatClient.Codigos.NotificaCertificadoRevocado(ctx, request)
+    if err != nil {
+        return fmt.Errorf("failed to send revocation notification: %w", err)
+    }
+    
+    // Check if notification was successful
+    if !resp.Body.Response.RespuestaNotificaRevocado.Transaccion {
+        var errors []string
+        for _, msg := range resp.Body.Response.RespuestaNotificaRevocado.MensajesList {
+            errors = append(errors, fmt.Sprintf("%d: %s", msg.Codigo, msg.Descripcion))
+        }
+        return fmt.Errorf("revocation notification rejected: %v", errors)
+    }
+    
+    return nil
+}
+
+// Usage example
+func main() {
+    // Initialize certificate manager
+    siatClient, _ := client.NewSiatClient(config.Config{
+        Token:   "your-token",
+        BaseURL: "https://pilotosiatservicios.impuestos.gob.bo",
+    })
+    
+    cm := &CertificateManager{
+        siatClient:     siatClient,
+        companyNIT:     1234567890,
+        codigoSistema:  "SystemCode123",
+    }
+    
+    // Scenario: Certificate key was compromised
+    certData := []byte("...certificate data...")
+    
+    err := cm.RevokeCertificate(
+        certData,
+        "Private key exposed in security incident on 2024-01-15",
+        0,  // Branch 0
+        "CUIS-CODE",
+    )
+    
+    if err != nil {
+        fmt.Printf("Failed to revoke certificate: %v\n", err)
+    } else {
+        fmt.Println("Certificate successfully revoked and SIAT notified")
+    }
+}
+```
+
+## Common Revocation Reasons
+
+When notifying SIAT about certificate revocation, use clear and specific reasons:
+
+### Security-Related Reasons
+
+- "Private key compromised in security breach on [date]"
+- "Certificate credentials exposed in system logs"
+- "Unauthorized access to certificate storage detected"
+- "Employee with certificate access terminated"
+
+### Administrative Reasons
+
+- "Certificate replaced due to expiration"
+- "Business restructuring - new certificate issued"
+- "Certificate lost or destroyed"
+- "Migration to new certificate authority"
+
+### Technical Reasons
+
+- "Certificate algorithm no longer secure"
+- "Certificate format incompatible with updated systems"
+- "Duplicate certificate issued by error"
+
+## Best Practices
+
+<Warning>
+  **Immediate notification required**: When you discover a certificate has been compromised, notify SIAT immediately to prevent unauthorized use.
+</Warning>
+
+<Tip>
+  **Document the incident**: Keep detailed records of why certificates were revoked, including dates, personnel involved, and circumstances. This helps with audits and compliance.
+</Tip>
+
+<Note>
+  **Have backup certificates ready**: Before revoking a certificate, ensure you have a replacement certificate ready to avoid service disruptions.
+</Note>
+
+<Warning>
+  **Cannot be undone**: Certificate revocation is permanent. Once notified, the certificate cannot be reactivated. Ensure you're revoking the correct certificate.
+</Warning>
+
+## Certificate Format Requirements
+
+### Accepted Formats
+
+SIAT typically accepts certificates in these formats:
+- PEM (Privacy Enhanced Mail)
+- DER (Distinguished Encoding Rules)
+- P7B/PKCS#7
+- PFX/P12/PKCS#12
+
+### Encoding the Certificate
+
+```go
+import (
+    "encoding/base64"
+    "os"
+)
+
+// Read and encode PEM certificate
+func encodeCertificate(certPath string) (string, error) {
+    certData, err := os.ReadFile(certPath)
+    if err != nil {
+        return "", err
+    }
+    
+    // Encode to base64
+    return base64.StdEncoding.EncodeToString(certData), nil
+}
+
+// Usage
+certBase64, err := encodeCertificate("certificate.pem")
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+## Error Handling
+
+### Common Error Scenarios
+
+#### Invalid Certificate Format
+
+If SIAT rejects the certificate format:
+1. Verify the certificate is properly base64 encoded
+2. Ensure the certificate file isn't corrupted
+3. Check that you're sending the full certificate chain if required
+
+#### Certificate Not Found
+
+If SIAT reports the certificate doesn't exist:
+1. Verify the certificate was previously registered with SIAT
+2. Check that you're using the correct NIT and branch
+3. Ensure the certificate matches your company's records
+
+#### Already Revoked
+
+If the certificate was already revoked:
+- SIAT will reject duplicate revocation attempts
+- This is informational and doesn't require action
+- Update your internal records if needed
+
+### Comprehensive Error Handling
+
+```go
+func handleRevocationResponse(
+    resp *soap.EnvelopeResponse[codigos.NotificaCertificadoRevocadoResponse],
+) error {
+    if !resp.Body.Response.RespuestaNotificaRevocado.Transaccion {
+        // Parse error messages
+        for _, msg := range resp.Body.Response.RespuestaNotificaRevocado.MensajesList {
+            switch msg.Codigo {
+            case 1:
+                return nil // Success message
+            case 995:
+                return fmt.Errorf("certificate not found: %s", msg.Descripcion)
+            case 996:
+                return fmt.Errorf("certificate already revoked: %s", msg.Descripcion)
+            case 997:
+                return fmt.Errorf("invalid certificate format: %s", msg.Descripcion)
+            default:
+                return fmt.Errorf("revocation failed (code %d): %s", 
+                    msg.Codigo, msg.Descripcion)
+            }
+        }
+    }
+    return nil
+}
+```
+
+## Security Considerations
+
+<Warning>
+  **Protect certificate data**: When handling certificates in your code, ensure they're transmitted securely and not logged or exposed in error messages.
+</Warning>
+
+### Secure Certificate Handling
+
+```go
+import (
+    "crypto/sha256"
+    "encoding/hex"
+    "fmt"
+)
+
+// Log certificate revocation without exposing certificate data
+func logCertificateRevocation(certData []byte, reason string) {
+    // Create hash of certificate for logging
+    hash := sha256.Sum256(certData)
+    certHash := hex.EncodeToString(hash[:])
+    
+    // Safe to log the hash
+    fmt.Printf("Revoking certificate with hash: %s\n", certHash)
+    fmt.Printf("Reason: %s\n", reason)
+    
+    // Never log the actual certificate data
+}
+```
+
+## Post-Revocation Actions
+
+After successfully revoking a certificate:
+
+1. **Update internal systems**: Mark the certificate as revoked in your database
+2. **Deploy replacement certificate**: Install and activate the new certificate
+3. **Test new certificate**: Verify all systems work with the replacement
+4. **Notify stakeholders**: Inform relevant team members of the change
+5. **Update documentation**: Record the revocation in your compliance documentation
+6. **Destroy old certificate**: Securely delete the revoked certificate's private key
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="CUIS Request" icon="key" href="/api/codigos/cuis">
+    Request CUIS codes (required for revocation)
+  </Card>
+  <Card title="XML Signing" icon="file-signature" href="/api/util/xml-signing">
+    Learn about digital signatures and certificates
+  </Card>
+</CardGroup>

@@ -1,0 +1,199 @@
+---
+title: Installation
+description: How to install the go-siat SDK in your Go project
+---
+
+## Prerequisites
+
+Before installing go-siat, ensure you have:
+
+<Steps>
+  <Step title="Go 1.26 or higher">
+    Check your Go version:
+    
+    ```bash
+    go version
+    ```
+    
+    If you need to update, visit [go.dev](https://go.dev/dl/)
+  </Step>
+  
+  <Step title="A Go module initialized">
+    If you haven't initialized a Go module yet:
+    
+    ```bash
+    go mod init your-project-name
+    ```
+  </Step>
+  
+  <Step title="SIAT API credentials">
+    You'll need a valid SIAT API token to make requests. Contact Bolivia's tax authority to obtain credentials.
+  </Step>
+</Steps>
+
+## Install via go get
+
+Install the latest version of go-siat using Go's package manager:
+
+```bash
+go get github.com/ron86i/go-siat@latest
+```
+
+This will:
+- Download the go-siat SDK
+- Add it to your `go.mod` file
+- Download all required dependencies
+
+## Verify Installation
+
+Create a simple test file to verify the installation:
+
+```go test.go
+package main
+
+import (
+    "fmt"
+    "github.com/ron86i/go-siat"
+)
+
+func main() {
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        fmt.Println("Error:", err)
+        return
+    }
+    fmt.Println("go-siat initialized successfully!")
+}
+```
+
+Run the test:
+
+```bash
+go run test.go
+```
+
+You should see:
+```
+go-siat initialized successfully!
+```
+
+## Package Structure
+
+Once installed, you'll have access to these key packages:
+
+<CodeGroup>
+```go Main SDK
+import "github.com/ron86i/go-siat"
+```
+
+```go Configuration
+import "github.com/ron86i/go-siat/pkg/config"
+```
+
+```go Request Models
+import "github.com/ron86i/go-siat/pkg/models"
+```
+
+```go Data Types
+import "github.com/ron86i/go-siat/internal/core/domain/datatype"
+```
+</CodeGroup>
+
+## Environment Configuration
+
+### Testing Environment
+
+For development and testing, use the pilot SIAT URL:
+
+```go
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+```
+
+### Production Environment
+
+For production, use your production SIAT URL:
+
+```go
+s, err := siat.New("https://your-production-siat-url.com/v2", nil)
+```
+
+### Custom HTTP Client
+
+You can provide a custom HTTP client with specific timeout and transport settings:
+
+```go
+import (
+    "net/http"
+    "time"
+    "github.com/ron86i/go-siat"
+)
+
+customClient := &http.Client{
+    Timeout: 30 * time.Second,
+    Transport: &http.Transport{
+        MaxIdleConns:       10,
+        IdleConnTimeout:    90 * time.Second,
+    },
+}
+
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", customClient)
+```
+
+<Note>
+  If no HTTP client is provided, go-siat uses a default client with a 15-second timeout.
+</Note>
+
+## Additional Dependencies for Invoice Signing
+
+If you plan to sign invoices (required for `CompraVenta` operations), you'll need:
+
+1. **Digital certificate** (`.crt` file) issued by a Bolivian certification authority
+2. **Private key** (`.pem` file) corresponding to your certificate
+
+These are used by the `SignXML` utility:
+
+```go
+signedXML, err := models.CompraVenta.SignXML(xmlData, "key.pem", "cert.crt")
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Module download errors">
+    If you encounter module download issues:
+    
+    ```bash
+    # Clear module cache
+    go clean -modcache
+    
+    # Re-download dependencies
+    go mod download
+    ```
+  </Accordion>
+  
+  <Accordion title="Version conflicts">
+    Ensure your `go.mod` specifies Go 1.26+:
+    
+    ```go go.mod
+    module your-project
+    
+    go 1.26
+    
+    require github.com/ron86i/go-siat latest
+    ```
+  </Accordion>
+  
+  <Accordion title="Import errors">
+    After installation, update dependencies:
+    
+    ```bash
+    go mod tidy
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<Card title="Quickstart Guide" icon="rocket" href="/quickstart">
+  Learn how to make your first SIAT API call with a complete working example
+</Card>

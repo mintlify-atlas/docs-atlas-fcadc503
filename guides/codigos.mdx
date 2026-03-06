@@ -1,0 +1,284 @@
+---
+title: 'CUIS/CUFD Management'
+description: 'Learn how to request and manage CUIS and CUFD codes, and verify NITs'
+icon: 'key'
+---
+
+## Overview
+
+The **Codigos** service handles all code management operations required for electronic invoicing in Bolivia:
+
+- **CUIS** (Código Único de Inicio de Sistemas): System initialization code required for all operations
+- **CUFD** (Código Único de Facturación Diaria): Daily billing code required for invoice submission
+- **NIT Verification**: Validate taxpayer identification numbers
+
+<Note>
+You must obtain a valid CUIS before requesting a CUFD. Both codes are required for invoice operations.
+</Note>
+
+## Initialize the Service
+
+First, create a SIAT client and access the Codigos service:
+
+```go
+import (
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+// Initialize SIAT service
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+if err != nil {
+    log.Fatalf("Error initializing SIAT: %v", err)
+}
+
+codigosService := s.Codigos
+
+// Configure API token
+cfg := config.Config{Token: "YOUR_API_TOKEN"}
+ctx := context.Background()
+```
+
+## Request CUIS
+
+<Steps>
+  <Step title="Build the CUIS Request">
+    Use the builder pattern to construct your CUIS request with all required parameters:
+
+    ```go
+    cuisReq := models.Codigos.NewCuisRequest().
+        WithCodigoAmbiente(1).           // 1=Production, 2=Pilot
+        WithCodigoModalidad(1).          // 1=Electronic, 2=Computerized
+        WithCodigoPuntoVenta(0).         // Point of sale code
+        WithCodigoSucursal(0).           // Branch code
+        WithCodigoSistema("ABC123DEF").  // Your system code
+        WithNit(123456789).              // Your NIT
+        Build()
+    ```
+
+    <Info>
+    The builder pattern ensures type safety and prevents missing required fields. All `With*` methods return the builder for chaining.
+    </Info>
+  </Step>
+
+  <Step title="Submit the Request">
+    Call the `SolicitudCuis` method to request the code:
+
+    ```go
+    resp, err := codigosService.SolicitudCuis(ctx, cfg, cuisReq)
+    if err != nil {
+        log.Fatalf("Error requesting CUIS: %v", err)
+    }
+    ```
+  </Step>
+
+  <Step title="Extract the CUIS Code">
+    Check the response and extract the CUIS code:
+
+    ```go
+    if resp != nil && resp.Body.Content.RespuestaCuis.Transaccion {
+        cuisCodigo := resp.Body.Content.RespuestaCuis.Codigo
+        fmt.Printf("CUIS obtained: %s\n", cuisCodigo)
+        
+        // Store this CUIS for subsequent operations
+    } else {
+        fmt.Printf("Transaction failed: %v\n", 
+            resp.Body.Content.RespuestaCuis.Mensajes)
+    }
+    ```
+  </Step>
+</Steps>
+
+## Request CUFD
+
+Once you have a valid CUIS, you can request a CUFD (required daily):
+
+<Steps>
+  <Step title="Build the CUFD Request">
+    Include the CUIS code obtained in the previous step:
+
+    ```go
+    cufdReq := models.Codigos.NewCufdRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSucursal(0).
+        WithCodigoSistema("ABC123DEF").
+        WithNit(123456789).
+        WithCuis(cuisCodigo).  // CUIS from previous request
+        Build()
+    ```
+  </Step>
+
+  <Step title="Submit and Process Response">
+    Request the CUFD and extract both the code and control code:
+
+    ```go
+    cufdResp, err := codigosService.SolicitudCufd(ctx, cfg, cufdReq)
+    if err != nil {
+        log.Fatalf("Error requesting CUFD: %v", err)
+    }
+
+    if cufdResp.Body.Content.RespuestaCufd.Transaccion {
+        cufdCodigo := cufdResp.Body.Content.RespuestaCufd.Codigo
+        codigoControl := cufdResp.Body.Content.RespuestaCufd.CodigoControl
+        
+        fmt.Printf("CUFD obtained: %s\n", cufdCodigo)
+        fmt.Printf("Control Code: %s\n", codigoControl)
+        
+        // Store both values for invoice submission
+    }
+    ```
+
+    <Warning>
+    The **Control Code** is required for generating the CUF (Código Único de Factura). Store it securely along with the CUFD.
+    </Warning>
+  </Step>
+</Steps>
+
+## Verify NIT
+
+Verify a taxpayer's NIT before issuing invoices:
+
+```go
+nitReq := models.Codigos.NewVerificarNitRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCuis(cuisCodigo).
+    WithNit(123456789).
+    WithNitParaVerificacion(7654321).  // NIT to verify
+    Build()
+
+nitResp, err := codigosService.VerificarNit(ctx, cfg, nitReq)
+if err != nil {
+    log.Fatalf("Error verifying NIT: %v", err)
+}
+
+if nitResp.Body.Content.RespuestaVerificarNit.Transaccion {
+    fmt.Printf("NIT is valid\n")
+} else {
+    fmt.Printf("NIT validation failed\n")
+}
+```
+
+## Complete Example
+
+Here's a complete workflow for obtaining CUIS and CUFD:
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize service
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+
+    codigosService := s.Codigos
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+
+    // Request CUIS
+    cuisReq := models.Codigos.NewCuisRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSucursal(0).
+        WithCodigoSistema("ABC123DEF").
+        WithNit(123456789).
+        Build()
+
+    resp, err := codigosService.SolicitudCuis(ctx, cfg, cuisReq)
+    if err != nil {
+        log.Fatalf("Error requesting CUIS: %v", err)
+    }
+
+    if resp != nil && resp.Body.Content.RespuestaCuis.Transaccion {
+        cuisCodigo := resp.Body.Content.RespuestaCuis.Codigo
+        fmt.Printf("CUIS obtained: %s\n", cuisCodigo)
+
+        // Request CUFD with the obtained CUIS
+        cufdReq := models.Codigos.NewCufdRequest().
+            WithCodigoAmbiente(1).
+            WithCodigoModalidad(1).
+            WithCodigoPuntoVenta(0).
+            WithCodigoSucursal(0).
+            WithCodigoSistema("ABC123DEF").
+            WithNit(123456789).
+            WithCuis(cuisCodigo).
+            Build()
+
+        cufdResp, err := codigosService.SolicitudCufd(ctx, cfg, cufdReq)
+        if err == nil && cufdResp.Body.Content.RespuestaCufd.Transaccion {
+            fmt.Printf("CUFD obtained: %s (Control: %s)\n",
+                cufdResp.Body.Content.RespuestaCufd.Codigo,
+                cufdResp.Body.Content.RespuestaCufd.CodigoControl)
+        }
+    }
+}
+```
+
+## Builder Pattern Reference
+
+All request builders in the Codigos service follow this pattern:
+
+| Builder Method | Description | Type |
+|---------------|-------------|------|
+| `WithCodigoAmbiente()` | Environment code (1=Production, 2=Pilot) | `int` |
+| `WithCodigoModalidad()` | Modality (1=Electronic, 2=Computerized) | `int` |
+| `WithCodigoPuntoVenta()` | Point of sale code | `int` |
+| `WithCodigoSucursal()` | Branch office code | `int` |
+| `WithCodigoSistema()` | System identification code | `string` |
+| `WithNit()` | Taxpayer identification number | `int64` |
+| `WithCuis()` | CUIS code (for CUFD requests) | `string` |
+| `Build()` | Finalizes and returns the request | Request interface |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="CUIS Management">
+    - Store CUIS codes securely in your database
+    - CUIS codes are typically valid for extended periods
+    - Request a new CUIS when starting a new system or after significant changes
+    - Reuse the same CUIS for all CUFD requests until it expires
+  </Accordion>
+
+  <Accordion title="CUFD Management">
+    - Request a new CUFD at the start of each business day
+    - Store the CUFD and its corresponding Control Code together
+    - The Control Code is essential for generating invoice CUFs
+    - Monitor CUFD expiration times and renew before they expire
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    - Always check the `Transaccion` field in responses (true = success)
+    - Log error messages from `resp.Body.Content.Respuesta*.Mensajes`
+    - Implement retry logic for network failures
+    - Cache valid codes to minimize API calls
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Catalog Synchronization" icon="arrows-rotate" href="/guides/sincronizacion">
+    Sync parametric catalogs required for invoicing
+  </Card>
+  <Card title="Point of Sale Operations" icon="cash-register" href="/guides/operaciones">
+    Register and manage points of sale
+  </Card>
+</CardGroup>

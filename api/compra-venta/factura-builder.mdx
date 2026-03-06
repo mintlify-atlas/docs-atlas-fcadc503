@@ -1,0 +1,487 @@
+---
+title: 'Invoice Builder Pattern'
+description: 'Build invoices using Factura, Cabecera, and Detalle builders'
+icon: 'hammer'
+---
+
+## Overview
+
+The go-siat SDK uses a fluent builder pattern to construct invoices safely and efficiently. The builder pattern ensures:
+
+- Type safety with opaque interfaces
+- Prevention of direct manipulation of internal structures
+- Clear, readable invoice construction code
+- Compile-time validation of required fields
+
+## Invoice Structure
+
+A complete invoice consists of three main components:
+
+1. **Factura** - The root invoice container
+2. **Cabecera** - The header with issuer, customer, and transaction details
+3. **Detalle** - Individual line items (products/services)
+
+```
+FacturaCompraVenta (Invoice)
+├── Cabecera (Header)
+│   ├── Issuer information
+│   ├── Customer information
+│   └── Transaction totals
+└── Detalle[] (Line Items)
+    ├── Product/service details
+    ├── Quantities and prices
+    └── Subtotals
+```
+
+## Building an Invoice
+
+### 1. Create Cabecera (Header)
+
+The header contains issuer, customer, and transaction information:
+
+```go
+cabecera := models.CompraVenta.NewCabecera().
+    // Issuer information
+    WithNitEmisor(123456789).
+    WithRazonSocialEmisor("Mi Empresa S.A.").
+    WithMunicipio("La Paz").
+    WithDireccion("Av. Principal 123").
+    WithTelefono("+591 2 1234567").
+    
+    // Invoice identification
+    WithNumeroFactura(1).
+    WithCuf("GENERATED_CUF").
+    WithCufd("DAILY_CUFD").
+    WithCodigoSucursal(0).
+    WithCodigoPuntoVenta(0).
+    WithFechaEmision("2024-01-15T14:30:00.000").
+    
+    // Customer information
+    WithNombreRazonSocial("JUAN PEREZ").
+    WithCodigoTipoDocumentoIdentidad(1).
+    WithNumeroDocumento("5544332").
+    WithComplemento("1A").
+    WithCodigoCliente("CLI-001").
+    
+    // Payment information
+    WithCodigoMetodoPago(1).
+    WithMontoTotal(100.0).
+    WithMontoTotalSujetoIva(100.0).
+    WithCodigoMoneda(1).
+    WithTipoCambio(1.0).
+    WithMontoTotalMoneda(100.0).
+    
+    // Additional fields
+    WithLeyenda("Ley N° 453: El proveedor deberá suministrar el servicio...").
+    WithUsuario("admin").
+    WithCodigoDocumentoSector(1).
+    Build()
+```
+
+### 2. Create Detalle (Line Items)
+
+Add one or more line items describing the products or services:
+
+```go
+detalle1 := models.CompraVenta.NewDetalle().
+    WithActividadEconomica("461000").
+    WithCodigoProductoSin("12345").
+    WithCodigoProducto("PROD-001").
+    WithDescripcion("Producto de prueba").
+    WithCantidad(2.0).
+    WithUnidadMedida(57).
+    WithPrecioUnitario(50.0).
+    WithSubTotal(100.0).
+    Build()
+
+detalle2 := models.CompraVenta.NewDetalle().
+    WithActividadEconomica("461000").
+    WithCodigoProductoSin("67890").
+    WithCodigoProducto("PROD-002").
+    WithDescripcion("Servicio adicional").
+    WithCantidad(1.0).
+    WithUnidadMedida(62).
+    WithPrecioUnitario(25.0).
+    WithMontoDescuento(5.0).
+    WithSubTotal(20.0).
+    Build()
+```
+
+### 3. Assemble the Invoice
+
+Combine the header and line items into a complete invoice:
+
+```go
+factura := models.CompraVenta.NewFactura().
+    WithCabecera(cabecera).
+    AddDetalle(detalle1).
+    AddDetalle(detalle2).
+    Build()
+```
+
+## Cabecera Builder Methods
+
+Complete reference for all `CabeceraBuilder` methods:
+
+### Issuer Information
+
+<ParamField path="WithNitEmisor" type="func(int64)" required>
+  Tax identification number (NIT) of the issuing company
+</ParamField>
+
+<ParamField path="WithRazonSocialEmisor" type="func(string)" required>
+  Legal name of the issuing company
+</ParamField>
+
+<ParamField path="WithMunicipio" type="func(string)" required>
+  Municipality where the issuer is located (e.g., "La Paz", "Santa Cruz")
+</ParamField>
+
+<ParamField path="WithDireccion" type="func(string)" required>
+  Physical address of the issuer
+</ParamField>
+
+<ParamField path="WithTelefono" type="func(string)">
+  Contact phone number (optional)
+</ParamField>
+
+### Invoice Identification
+
+<ParamField path="WithNumeroFactura" type="func(int64)" required>
+  Sequential invoice number
+</ParamField>
+
+<ParamField path="WithCuf" type="func(string)" required>
+  CUF (Código Único de Factura) - unique invoice code generated using `models.CompraVenta.GenerarCUF()`
+</ParamField>
+
+<ParamField path="WithCufd" type="func(string)" required>
+  CUFD (Código Único de Factura Diario) - daily invoice code
+</ParamField>
+
+<ParamField path="WithCodigoSucursal" type="func(int)" required>
+  Branch/office code registered in SIAT
+</ParamField>
+
+<ParamField path="WithCodigoPuntoVenta" type="func(int)" required>
+  Point of sale code
+</ParamField>
+
+<ParamField path="WithFechaEmision" type="func(string)" required>
+  Emission date and time in format: `"2006-01-02T15:04:05.000"`
+</ParamField>
+
+<ParamField path="WithCodigoDocumentoSector" type="func(int)" required>
+  Document sector type code from SIAT catalogs
+</ParamField>
+
+### Customer Information
+
+<ParamField path="WithNombreRazonSocial" type="func(string)">
+  Customer's name or legal name (optional)
+</ParamField>
+
+<ParamField path="WithCodigoTipoDocumentoIdentidad" type="func(int)" required>
+  Document type code:
+  - `1` = CI (Cédula de Identidad)
+  - `2` = CEX (Cédula de Extranjero)
+  - `3` = Pasaporte
+  - `4` = NIT
+  - `5` = Otro
+</ParamField>
+
+<ParamField path="WithNumeroDocumento" type="func(string)" required>
+  Customer's document number
+</ParamField>
+
+<ParamField path="WithComplemento" type="func(string)">
+  Document complement (e.g., "1A") - optional
+</ParamField>
+
+<ParamField path="WithCodigoCliente" type="func(string)" required>
+  Internal customer code in your system
+</ParamField>
+
+### Payment Information
+
+<ParamField path="WithCodigoMetodoPago" type="func(int)" required>
+  Payment method code:
+  - `1` = Efectivo
+  - `2` = Tarjeta
+  - `3` = Cheque
+  - `4` = Otro
+</ParamField>
+
+<ParamField path="WithNumeroTarjeta" type="func(int64)">
+  Card number (last 4 digits) - required if payment method is card
+</ParamField>
+
+<ParamField path="WithMontoTotal" type="func(float64)" required>
+  Total invoice amount including taxes
+</ParamField>
+
+<ParamField path="WithMontoTotalSujetoIva" type="func(float64)" required>
+  Total amount subject to VAT
+</ParamField>
+
+<ParamField path="WithCodigoMoneda" type="func(int)" required>
+  Currency code:
+  - `1` = Boliviano (BOB)
+  - `2` = Dólar (USD)
+  - `3` = Euro (EUR)
+</ParamField>
+
+<ParamField path="WithTipoCambio" type="func(float64)" required>
+  Exchange rate (use `1.0` for BOB)
+</ParamField>
+
+<ParamField path="WithMontoTotalMoneda" type="func(float64)" required>
+  Total amount in the specified currency
+</ParamField>
+
+<ParamField path="WithMontoGiftCard" type="func(float64)">
+  Gift card amount applied (optional)
+</ParamField>
+
+<ParamField path="WithDescuentoAdicional" type="func(float64)">
+  Additional discount amount (optional)
+</ParamField>
+
+### Additional Fields
+
+<ParamField path="WithLeyenda" type="func(string)" required>
+  Legal legend text (e.g., "Ley N° 453: El proveedor deberá suministrar el servicio...")
+</ParamField>
+
+<ParamField path="WithUsuario" type="func(string)" required>
+  Username of the person issuing the invoice
+</ParamField>
+
+<ParamField path="WithCodigoExcepcion" type="func(int64)">
+  Exception code for offline invoicing (optional)
+</ParamField>
+
+<ParamField path="WithCafc" type="func(string)">
+  CAFC code for offline contingency mode (optional)
+</ParamField>
+
+## Detalle Builder Methods
+
+Complete reference for all `DetalleBuilder` methods:
+
+<ParamField path="WithActividadEconomica" type="func(string)" required>
+  Economic activity code associated with the product/service
+</ParamField>
+
+<ParamField path="WithCodigoProductoSin" type="func(string)" required>
+  SIN product code from SIAT catalogs
+</ParamField>
+
+<ParamField path="WithCodigoProducto" type="func(string)" required>
+  Internal product code in your system
+</ParamField>
+
+<ParamField path="WithDescripcion" type="func(string)" required>
+  Product or service description
+</ParamField>
+
+<ParamField path="WithCantidad" type="func(float64)" required>
+  Quantity sold
+</ParamField>
+
+<ParamField path="WithUnidadMedida" type="func(int)" required>
+  Unit of measure code from SIAT catalogs:
+  - `57` = Unidad
+  - `58` = Kilogramo
+  - `59` = Metro
+  - `62` = Servicio
+  - (see SIAT catalogs for complete list)
+</ParamField>
+
+<ParamField path="WithPrecioUnitario" type="func(float64)" required>
+  Unit price of the product/service
+</ParamField>
+
+<ParamField path="WithSubTotal" type="func(float64)" required>
+  Line item subtotal (quantity × unit price - discount)
+</ParamField>
+
+<ParamField path="WithMontoDescuento" type="func(float64)">
+  Discount amount applied to this line item (optional)
+</ParamField>
+
+<ParamField path="WithNumeroSerie" type="func(string)">
+  Serial number for serialized products (optional)
+</ParamField>
+
+<ParamField path="WithNumeroImei" type="func(string)">
+  IMEI number for mobile devices (optional)
+</ParamField>
+
+## Complete Example
+
+Here's a complete example building an invoice with multiple line items:
+
+```go
+package main
+
+import (
+    "encoding/xml"
+    "fmt"
+    "log"
+    "time"
+
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Generate CUF
+    nit := int64(123456789)
+    fechaEmision := time.Now()
+    cuf, err := models.CompraVenta.GenerarCUF(
+        nit, fechaEmision, 0, 1, 1, 1, 1, 1, 0, "XYZ789",
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Build header
+    cabecera := models.CompraVenta.NewCabecera().
+        WithNitEmisor(nit).
+        WithRazonSocialEmisor("ACME Corporation S.A.").
+        WithMunicipio("La Paz").
+        WithDireccion("Av. 16 de Julio #1234").
+        WithTelefono("+591 2 1234567").
+        WithNumeroFactura(1001).
+        WithCuf(cuf).
+        WithCufd("CUFD123456789").
+        WithCodigoSucursal(0).
+        WithCodigoPuntoVenta(0).
+        WithFechaEmision(fechaEmision.Format("2006-01-02T15:04:05.000")).
+        WithNombreRazonSocial("Juan Pérez").
+        WithCodigoTipoDocumentoIdentidad(1).
+        WithNumeroDocumento("12345678").
+        WithComplemento("1A").
+        WithCodigoCliente("CUST-001").
+        WithCodigoMetodoPago(1).
+        WithMontoTotal(250.0).
+        WithMontoTotalSujetoIva(250.0).
+        WithCodigoMoneda(1).
+        WithTipoCambio(1.0).
+        WithMontoTotalMoneda(250.0).
+        WithLeyenda("Ley N° 453: El proveedor deberá suministrar el servicio...").
+        WithUsuario("admin").
+        WithCodigoDocumentoSector(1).
+        Build()
+
+    // Build line items
+    detalle1 := models.CompraVenta.NewDetalle().
+        WithActividadEconomica("461000").
+        WithCodigoProductoSin("12345").
+        WithCodigoProducto("LAPTOP-001").
+        WithDescripcion("Laptop Dell Inspiron 15").
+        WithCantidad(1.0).
+        WithUnidadMedida(57).
+        WithPrecioUnitario(200.0).
+        WithSubTotal(200.0).
+        WithNumeroSerie("SN123456789").
+        Build()
+
+    detalle2 := models.CompraVenta.NewDetalle().
+        WithActividadEconomica("461000").
+        WithCodigoProductoSin("67890").
+        WithCodigoProducto("MOUSE-001").
+        WithDescripcion("Mouse inalámbrico").
+        WithCantidad(2.0).
+        WithUnidadMedida(57).
+        WithPrecioUnitario(30.0).
+        WithMontoDescuento(10.0).
+        WithSubTotal(50.0).
+        Build()
+
+    // Assemble invoice
+    factura := models.CompraVenta.NewFactura().
+        WithCabecera(cabecera).
+        AddDetalle(detalle1).
+        AddDetalle(detalle2).
+        Build()
+
+    // Marshal to XML
+    xmlData, err := xml.MarshalIndent(factura, "", "  ")
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    fmt.Println(string(xmlData))
+}
+```
+
+## Working with Optional Fields
+
+Some fields use the `Nilable[T]` type internally to support SIAT's requirement for explicit nil values. The builders handle this automatically:
+
+```go
+// Optional string field
+cabecera := models.CompraVenta.NewCabecera().
+    WithTelefono("+591 2 1234567"). // Sets value
+    // ... other fields
+    Build()
+
+// Optional numeric field
+detalle := models.CompraVenta.NewDetalle().
+    WithMontoDescuento(15.5). // Sets value
+    // ... other fields
+    Build()
+
+// Omitting optional fields is fine - they will be nil in the XML
+detalle := models.CompraVenta.NewDetalle().
+    // No WithMontoDescuento() call
+    // ... other fields
+    Build()
+```
+
+## XML Output
+
+The built invoice marshals to XML compatible with SIAT's XSD schema:
+
+```xml
+<facturaElectronicaCompraVenta 
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="facturaElectronicaCompraVenta.xsd">
+  <cabecera>
+    <nitEmisor>123456789</nitEmisor>
+    <razonSocialEmisor>Mi Empresa S.A.</razonSocialEmisor>
+    <municipio>La Paz</municipio>
+    <telefono>+591 2 1234567</telefono>
+    <!-- ... more fields ... -->
+  </cabecera>
+  <detalle>
+    <actividadEconomica>461000</actividadEconomica>
+    <codigoProductoSin>12345</codigoProductoSin>
+    <!-- ... more fields ... -->
+  </detalle>
+</facturaElectronicaCompraVenta>
+```
+
+## Next Steps
+
+After building your invoice:
+
+1. **Marshal to XML**: Use `xml.Marshal(factura)`
+2. **Sign**: Use `models.CompraVenta.SignXML()`
+3. **Compress**: Use gzip compression
+4. **Hash**: Calculate SHA256 hash
+5. **Submit**: Use `RecepcionFactura` service method
+
+See the [RecepcionFactura](/api/compra-venta/recepcion-factura#complete-example) page for the complete submission workflow.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="RecepcionFactura" icon="paper-plane" href="/api/compra-venta/recepcion-factura">
+    Submit invoices to SIAT
+  </Card>
+  <Card title="Overview" icon="receipt" href="/api/compra-venta/overview">
+    CompraVenta service overview
+  </Card>
+</CardGroup>

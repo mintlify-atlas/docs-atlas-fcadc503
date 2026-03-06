@@ -1,0 +1,415 @@
+---
+title: 'CUIS Request Methods'
+description: 'Request system initialization codes from SIAT'
+---
+
+## Overview
+
+CUIS (Código Único de Inicio de Sistemas) is a system initialization code required before performing any invoicing operations. This code has a specific validity period and must be obtained for each point of sale and branch office.
+
+## Single CUIS Request
+
+Request a CUIS code for a specific point of sale.
+
+### Method Signature
+
+```go
+func (s *SiatCodigosService) SolicitudCuis(
+    ctx context.Context,
+    config config.Config,
+    request models.CuisRequest,
+) (*soap.EnvelopeResponse[codigos.CuisResponse], error)
+```
+
+### Building the Request
+
+Use the builder pattern to construct a CUIS request:
+
+```go
+request := models.Codigos.NewCuisRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("SystemCode123").
+    WithCodigoSucursal(0).
+    WithCodigoPuntoVenta(0).
+    WithNit(1234567890).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code:
+  - `1` - Production
+  - `2` - Testing/Development
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Operation modality code. Common values:
+  - `1` - Electronic invoicing
+  - `2` - Computer-based invoicing
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code assigned by SIAT during registration
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code. Use `0` for the main office
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int" required>
+  Point of sale code. Use `0` for the main point of sale
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number (NIT)
+</ParamField>
+
+### Response Structure
+
+```go
+type CuisResponse struct {
+    RespuestaCuis RespuestaCuis
+}
+
+type RespuestaCuis struct {
+    Codigo        string
+    FechaVigencia time.Time
+    MensajesList  []MensajeServicio
+    Transaccion   bool
+}
+```
+
+### Response Fields
+
+<ResponseField name="codigo" type="string">
+  The generated CUIS code to be used in subsequent operations
+</ResponseField>
+
+<ResponseField name="fechaVigencia" type="time.Time">
+  Expiration date and time of the CUIS code
+</ResponseField>
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the request was successful
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors from the service
+</ResponseField>
+
+### Example Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    cfg := config.Config{
+        Token:      "your-api-token",
+        BaseURL:    "https://pilotosiatservicios.impuestos.gob.bo",
+        Ambiente:   1,
+        Modalidad:  1,
+        Sistema:    "SystemCode123",
+        NIT:        1234567890,
+    }
+    
+    siatClient, err := client.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Build request
+    request := models.Codigos.NewCuisRequest().
+        WithCodigoAmbiente(cfg.Ambiente).
+        WithCodigoModalidad(cfg.Modalidad).
+        WithCodigoSistema(cfg.Sistema).
+        WithCodigoSucursal(0).
+        WithCodigoPuntoVenta(0).
+        WithNit(cfg.NIT).
+        Build()
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.SolicitudCuis(ctx, request)
+    if err != nil {
+        log.Fatalf("Failed to request CUIS: %v", err)
+    }
+    
+    // Check transaction status
+    if !resp.Body.Response.RespuestaCuis.Transaccion {
+        fmt.Println("CUIS request failed:")
+        for _, msg := range resp.Body.Response.RespuestaCuis.MensajesList {
+            fmt.Printf("  Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+        return
+    }
+    
+    // Success
+    fmt.Printf("CUIS Code: %s\n", resp.Body.Response.RespuestaCuis.Codigo)
+    fmt.Printf("Valid until: %s\n", resp.Body.Response.RespuestaCuis.FechaVigencia)
+}
+```
+
+---
+
+## Bulk CUIS Request
+
+Request multiple CUIS codes in a single operation for different branches and points of sale.
+
+### Method Signature
+
+```go
+func (s *SiatCodigosService) SolicitudCuisMasivo(
+    ctx context.Context,
+    config config.Config,
+    request models.CuisMasivoRequest,
+) (*soap.EnvelopeResponse[codigos.CuisMasivoResponse], error)
+```
+
+### Building the Request
+
+```go
+// Define the list of branches and points of sale
+puntoVenta1 := 0
+puntoVenta2 := 1
+
+datosSolicitud := []codigos.SolicitudListaCuisDto{
+    {
+        CodigoSucursal:   0,
+        CodigoPuntoVenta: &puntoVenta1,
+    },
+    {
+        CodigoSucursal:   1,
+        CodigoPuntoVenta: &puntoVenta2,
+    },
+}
+
+request := models.Codigos.NewCuisMasivoRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("SystemCode123").
+    WithNit(1234567890).
+    WithDatosSolicitud(datosSolicitud).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1 for production, 2 for testing)
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Operation modality code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+<ParamField path="datosSolicitud" type="[]SolicitudListaCuisDto" required>
+  List of branch and point of sale combinations to request CUIS for
+</ParamField>
+
+### SolicitudListaCuisDto Structure
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="*int" required>
+  Pointer to point of sale code. Can be nil for branch-level CUIS
+</ParamField>
+
+### Response Structure
+
+```go
+type CuisMasivoResponse struct {
+    RespuestaCuisMasivo RespuestaCuisMasivo
+}
+
+type RespuestaCuisMasivo struct {
+    ListaRespuestasCuis []RespuestaListaRegistroCuisSoapDto
+    MensajesList        []MensajeServicio
+    Transaccion         bool
+}
+
+type RespuestaListaRegistroCuisSoapDto struct {
+    Codigo              string
+    CodigoPuntoVenta    *int32
+    CodigoSucursal      *int32
+    FechaVigencia       time.Time
+    MensajeServicioList []MensajeServicio
+    Transaccion         bool
+}
+```
+
+### Response Fields
+
+<ResponseField name="listaRespuestasCuis" type="[]RespuestaListaRegistroCuisSoapDto">
+  List of CUIS responses, one for each requested branch/point of sale
+</ResponseField>
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the overall request was successful
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of global messages or errors
+</ResponseField>
+
+### Individual Response Fields
+
+<ResponseField name="codigo" type="string">
+  The generated CUIS code
+</ResponseField>
+
+<ResponseField name="codigoSucursal" type="*int32">
+  Branch office code for this CUIS
+</ResponseField>
+
+<ResponseField name="codigoPuntoVenta" type="*int32">
+  Point of sale code for this CUIS
+</ResponseField>
+
+<ResponseField name="fechaVigencia" type="time.Time">
+  Expiration date of this CUIS
+</ResponseField>
+
+<ResponseField name="transaccion" type="bool">
+  Success status for this individual CUIS
+</ResponseField>
+
+<ResponseField name="mensajeServicioList" type="[]MensajeServicio">
+  Messages specific to this CUIS request
+</ResponseField>
+
+### Example Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat/internal/core/domain/facturacion/codigos"
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    cfg := config.Config{
+        Token:   "your-api-token",
+        BaseURL: "https://pilotosiatservicios.impuestos.gob.bo",
+    }
+    
+    siatClient, err := client.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Define multiple branches/points of sale
+    puntoVenta0 := 0
+    puntoVenta1 := 1
+    
+    datosSolicitud := []codigos.SolicitudListaCuisDto{
+        {
+            CodigoSucursal:   0,
+            CodigoPuntoVenta: &puntoVenta0,
+        },
+        {
+            CodigoSucursal:   0,
+            CodigoPuntoVenta: &puntoVenta1,
+        },
+        {
+            CodigoSucursal:   1,
+            CodigoPuntoVenta: &puntoVenta0,
+        },
+    }
+    
+    // Build request
+    request := models.Codigos.NewCuisMasivoRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("SystemCode123").
+        WithNit(1234567890).
+        WithDatosSolicitud(datosSolicitud).
+        Build()
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.SolicitudCuisMasivo(ctx, request)
+    if err != nil {
+        log.Fatalf("Failed to request bulk CUIS: %v", err)
+    }
+    
+    // Process responses
+    if !resp.Body.Response.RespuestaCuisMasivo.Transaccion {
+        fmt.Println("Bulk CUIS request failed")
+        return
+    }
+    
+    fmt.Printf("Successfully obtained %d CUIS codes\n", 
+        len(resp.Body.Response.RespuestaCuisMasivo.ListaRespuestasCuis))
+    
+    for i, cuisResp := range resp.Body.Response.RespuestaCuisMasivo.ListaRespuestasCuis {
+        if cuisResp.Transaccion {
+            fmt.Printf("CUIS %d:\n", i+1)
+            fmt.Printf("  Code: %s\n", cuisResp.Codigo)
+            fmt.Printf("  Branch: %d\n", *cuisResp.CodigoSucursal)
+            fmt.Printf("  Point of Sale: %d\n", *cuisResp.CodigoPuntoVenta)
+            fmt.Printf("  Valid until: %s\n\n", cuisResp.FechaVigencia)
+        } else {
+            fmt.Printf("CUIS %d failed:\n", i+1)
+            for _, msg := range cuisResp.MensajeServicioList {
+                fmt.Printf("  Error %d: %s\n", msg.Codigo, msg.Descripcion)
+            }
+        }
+    }
+}
+```
+
+## Best Practices
+
+<Tip>
+  **Store CUIS codes securely**: CUIS codes should be stored in your database and reused until they expire. Don't request a new CUIS for every transaction.
+</Tip>
+
+<Warning>
+  **Monitor expiration dates**: Always check the `fechaVigencia` field and renew CUIS codes before they expire to avoid service interruptions.
+</Warning>
+
+<Note>
+  **Use bulk requests for multiple locations**: If you have multiple branches or points of sale, use `SolicitudCuisMasivo` to reduce network overhead and improve performance.
+</Note>
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="CUFD Request" icon="calendar" href="/api/codigos/cufd">
+    Request daily invoicing codes (requires CUIS)
+  </Card>
+  <Card title="NIT Verification" icon="check" href="/api/codigos/verificar-nit">
+    Verify tax identification numbers
+  </Card>
+</CardGroup>

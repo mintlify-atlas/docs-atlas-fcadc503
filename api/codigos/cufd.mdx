@@ -1,0 +1,477 @@
+---
+title: 'CUFD Request Methods'
+description: 'Request daily invoicing codes from SIAT'
+---
+
+## Overview
+
+CUFD (Código Único de Facturación Diaria) is a daily invoicing code required for issuing invoices. This code has a 24-hour validity period and must be obtained daily for each point of sale. A valid CUIS code is required before requesting a CUFD.
+
+## Single CUFD Request
+
+Request a CUFD code for a specific point of sale.
+
+### Method Signature
+
+```go
+func (s *SiatCodigosService) SolicitudCufd(
+    ctx context.Context,
+    config config.Config,
+    request models.CufdRequest,
+) (*soap.EnvelopeResponse[codigos.CufdResponse], error)
+```
+
+### Building the Request
+
+Use the builder pattern to construct a CUFD request:
+
+```go
+request := models.Codigos.NewCufdRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("SystemCode123").
+    WithCodigoSucursal(0).
+    WithCodigoPuntoVenta(0).
+    WithCuis("CUIS-CODE-HERE").
+    WithNit(1234567890).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code:
+  - `1` - Production
+  - `2` - Testing/Development
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Operation modality code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int" required>
+  Point of sale code. Can be 0 for branch-level CUFD
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Valid CUIS code for this branch/point of sale
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number (NIT)
+</ParamField>
+
+### Response Structure
+
+```go
+type CufdResponse struct {
+    RespuestaCufd RespuestaCufd
+}
+
+type RespuestaCufd struct {
+    Codigo        string
+    CodigoControl string
+    Direccion     string
+    FechaVigencia time.Time
+    MensajesList  []MensajeServicio
+    Transaccion   bool
+}
+```
+
+### Response Fields
+
+<ResponseField name="codigo" type="string">
+  The generated CUFD code to be used in invoice generation
+</ResponseField>
+
+<ResponseField name="codigoControl" type="string">
+  Control code associated with the CUFD
+</ResponseField>
+
+<ResponseField name="direccion" type="string">
+  Physical address associated with the branch/point of sale
+</ResponseField>
+
+<ResponseField name="fechaVigencia" type="time.Time">
+  Expiration date and time of the CUFD (valid for 24 hours)
+</ResponseField>
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the request was successful
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors from the service
+</ResponseField>
+
+### Example Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    cfg := config.Config{
+        Token:      "your-api-token",
+        BaseURL:    "https://pilotosiatservicios.impuestos.gob.bo",
+        Ambiente:   1,
+        Modalidad:  1,
+        Sistema:    "SystemCode123",
+        NIT:        1234567890,
+    }
+    
+    siatClient, err := client.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Build request (requires a valid CUIS)
+    request := models.Codigos.NewCufdRequest().
+        WithCodigoAmbiente(cfg.Ambiente).
+        WithCodigoModalidad(cfg.Modalidad).
+        WithCodigoSistema(cfg.Sistema).
+        WithCodigoSucursal(0).
+        WithCodigoPuntoVenta(0).
+        WithCuis("YOUR-VALID-CUIS-CODE").
+        WithNit(cfg.NIT).
+        Build()
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.SolicitudCufd(ctx, request)
+    if err != nil {
+        log.Fatalf("Failed to request CUFD: %v", err)
+    }
+    
+    // Check transaction status
+    if !resp.Body.Response.RespuestaCufd.Transaccion {
+        fmt.Println("CUFD request failed:")
+        for _, msg := range resp.Body.Response.RespuestaCufd.MensajesList {
+            fmt.Printf("  Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+        return
+    }
+    
+    // Success
+    fmt.Printf("CUFD Code: %s\n", resp.Body.Response.RespuestaCufd.Codigo)
+    fmt.Printf("Control Code: %s\n", resp.Body.Response.RespuestaCufd.CodigoControl)
+    fmt.Printf("Address: %s\n", resp.Body.Response.RespuestaCufd.Direccion)
+    fmt.Printf("Valid until: %s\n", resp.Body.Response.RespuestaCufd.FechaVigencia)
+}
+```
+
+---
+
+## Bulk CUFD Request
+
+Request multiple CUFD codes in a single operation for different branches and points of sale.
+
+### Method Signature
+
+```go
+func (s *SiatCodigosService) SolicitudCufdMasivo(
+    ctx context.Context,
+    config config.Config,
+    request models.CufdMasivoRequest,
+) (*soap.EnvelopeResponse[codigos.CufdMasivoResponse], error)
+```
+
+### Building the Request
+
+```go
+// Define the list of branches and points of sale with their CUIS codes
+puntoVenta1 := 0
+puntoVenta2 := 1
+
+datosSolicitud := []codigos.SolicitudListaCufdDto{
+    {
+        CodigoSucursal:   0,
+        CodigoPuntoVenta: &puntoVenta1,
+        Cuis:             "CUIS-CODE-FOR-BRANCH-0-POS-0",
+    },
+    {
+        CodigoSucursal:   0,
+        CodigoPuntoVenta: &puntoVenta2,
+        Cuis:             "CUIS-CODE-FOR-BRANCH-0-POS-1",
+    },
+}
+
+request := models.Codigos.NewCufdMasivoRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("SystemCode123").
+    WithNit(1234567890).
+    WithDatosSolicitud(datosSolicitud).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1 for production, 2 for testing)
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Operation modality code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System identification code
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+<ParamField path="datosSolicitud" type="[]SolicitudListaCufdDto" required>
+  List of branch, point of sale, and CUIS combinations
+</ParamField>
+
+### SolicitudListaCufdDto Structure
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="*int" required>
+  Pointer to point of sale code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Valid CUIS code for this branch/point of sale combination
+</ParamField>
+
+### Response Structure
+
+```go
+type CufdMasivoResponse struct {
+    RespuestaCufdMasivo RespuestaCufdMasivo
+}
+
+type RespuestaCufdMasivo struct {
+    ListaRespuestasCufd []RespuestaListaRegistroCufdSoapDto
+    MensajesList        []MensajeServicio
+    Transaccion         bool
+}
+
+type RespuestaListaRegistroCufdSoapDto struct {
+    Codigo              string
+    CodigoControl       string
+    CodigoPuntoVenta    *int
+    CodigoSucursal      *int
+    Cuis                string
+    Direccion           string
+    FechaVigencia       time.Time
+    MensajeServicioList []MensajeServicio
+    Transaccion         bool
+}
+```
+
+### Response Fields
+
+<ResponseField name="listaRespuestasCufd" type="[]RespuestaListaRegistroCufdSoapDto">
+  List of CUFD responses, one for each requested branch/point of sale
+</ResponseField>
+
+<ResponseField name="transaccion" type="bool">
+  Indicates if the overall request was successful
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of global messages or errors
+</ResponseField>
+
+### Individual Response Fields
+
+<ResponseField name="codigo" type="string">
+  The generated CUFD code
+</ResponseField>
+
+<ResponseField name="codigoControl" type="string">
+  Control code for this CUFD
+</ResponseField>
+
+<ResponseField name="codigoSucursal" type="*int">
+  Branch office code for this CUFD
+</ResponseField>
+
+<ResponseField name="codigoPuntoVenta" type="*int">
+  Point of sale code for this CUFD
+</ResponseField>
+
+<ResponseField name="cuis" type="string">
+  CUIS code used to generate this CUFD
+</ResponseField>
+
+<ResponseField name="direccion" type="string">
+  Physical address for this location
+</ResponseField>
+
+<ResponseField name="fechaVigencia" type="time.Time">
+  Expiration date of this CUFD (24 hours from generation)
+</ResponseField>
+
+<ResponseField name="transaccion" type="bool">
+  Success status for this individual CUFD
+</ResponseField>
+
+<ResponseField name="mensajeServicioList" type="[]MensajeServicio">
+  Messages specific to this CUFD request
+</ResponseField>
+
+### Example Usage
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat/internal/core/domain/facturacion/codigos"
+    "github.com/ron86i/go-siat/pkg/client"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    cfg := config.Config{
+        Token:   "your-api-token",
+        BaseURL: "https://pilotosiatservicios.impuestos.gob.bo",
+    }
+    
+    siatClient, err := client.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Define multiple branches/points of sale with their CUIS codes
+    puntoVenta0 := 0
+    puntoVenta1 := 1
+    
+    datosSolicitud := []codigos.SolicitudListaCufdDto{
+        {
+            CodigoSucursal:   0,
+            CodigoPuntoVenta: &puntoVenta0,
+            Cuis:             "CUIS-CODE-1",
+        },
+        {
+            CodigoSucursal:   0,
+            CodigoPuntoVenta: &puntoVenta1,
+            Cuis:             "CUIS-CODE-2",
+        },
+        {
+            CodigoSucursal:   1,
+            CodigoPuntoVenta: &puntoVenta0,
+            Cuis:             "CUIS-CODE-3",
+        },
+    }
+    
+    // Build request
+    request := models.Codigos.NewCufdMasivoRequest().
+        WithCodigoAmbiente(1).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("SystemCode123").
+        WithNit(1234567890).
+        WithDatosSolicitud(datosSolicitud).
+        Build()
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := siatClient.Codigos.SolicitudCufdMasivo(ctx, request)
+    if err != nil {
+        log.Fatalf("Failed to request bulk CUFD: %v", err)
+    }
+    
+    // Process responses
+    if !resp.Body.Response.RespuestaCufdMasivo.Transaccion {
+        fmt.Println("Bulk CUFD request failed")
+        return
+    }
+    
+    fmt.Printf("Successfully obtained %d CUFD codes\n", 
+        len(resp.Body.Response.RespuestaCufdMasivo.ListaRespuestasCufd))
+    
+    for i, cufdResp := range resp.Body.Response.RespuestaCufdMasivo.ListaRespuestasCufd {
+        if cufdResp.Transaccion {
+            fmt.Printf("CUFD %d:\n", i+1)
+            fmt.Printf("  Code: %s\n", cufdResp.Codigo)
+            fmt.Printf("  Control Code: %s\n", cufdResp.CodigoControl)
+            fmt.Printf("  Branch: %d\n", *cufdResp.CodigoSucursal)
+            fmt.Printf("  Point of Sale: %d\n", *cufdResp.CodigoPuntoVenta)
+            fmt.Printf("  Address: %s\n", cufdResp.Direccion)
+            fmt.Printf("  Valid until: %s\n\n", cufdResp.FechaVigencia)
+        } else {
+            fmt.Printf("CUFD %d failed:\n", i+1)
+            for _, msg := range cufdResp.MensajeServicioList {
+                fmt.Printf("  Error %d: %s\n", msg.Codigo, msg.Descripcion)
+            }
+        }
+    }
+}
+```
+
+## Best Practices
+
+<Warning>
+  **Daily renewal required**: CUFD codes expire after 24 hours. Implement an automated process to request new CUFD codes daily before the expiration time.
+</Warning>
+
+<Tip>
+  **Early morning renewal**: Request new CUFD codes early in the morning (e.g., 6 AM) to ensure they're available before business operations begin.
+</Tip>
+
+<Note>
+  **CUIS dependency**: Always ensure you have a valid CUIS code before requesting a CUFD. If the CUIS has expired, you must renew it first.
+</Note>
+
+<Tip>
+  **Store with metadata**: When storing CUFD codes, also save the control code, address, and expiration time. These are needed for invoice generation and validation.
+</Tip>
+
+## Common Errors
+
+### Invalid CUIS
+
+If you receive an error about an invalid CUIS code, verify that:
+1. The CUIS code hasn't expired
+2. The CUIS matches the branch/point of sale in the request
+3. The CUIS was obtained for the same environment (production vs testing)
+
+### Expired CUFD
+
+If you try to use an expired CUFD for invoicing:
+1. Request a new CUFD immediately
+2. Update your database with the new code
+3. Retry the invoice generation
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="CUIS Request" icon="key" href="/api/codigos/cuis">
+    Request system initialization codes (required before CUFD)
+  </Card>
+  <Card title="Invoice Generation" icon="file-invoice" href="/api/compra-venta/recepcion-factura">
+    Use CUFD codes to generate invoices
+  </Card>
+</CardGroup>

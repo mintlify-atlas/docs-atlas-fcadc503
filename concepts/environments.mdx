@@ -1,0 +1,586 @@
+---
+title: 'Environments'
+description: 'Configure and manage development and production environments for SIAT integration'
+icon: 'server'
+---
+
+## Overview
+
+The SIAT system provides two separate environments for integrating your invoicing application: **Development (Pilot)** and **Production**. Understanding the differences between these environments is crucial for proper testing and deployment.
+
+## Environment Types
+
+### Development Environment (Pilot)
+
+The pilot environment is designed for testing and development:
+
+```go
+const DevBaseURL = "https://pilotosiatservicios.impuestos.gob.bo/v2"
+
+s, err := siat.New(DevBaseURL, nil)
+```
+
+**Characteristics:**
+- Safe for testing without affecting real tax data
+- Separate API tokens from production
+- May have relaxed validation rules
+- Data does not affect official tax records
+- Suitable for integration testing and development
+
+### Production Environment
+
+The production environment handles real invoicing operations:
+
+```go
+const ProdBaseURL = "https://siat.impuestos.gob.bo/v2"
+
+s, err := siat.New(ProdBaseURL, nil)
+```
+
+**Characteristics:**
+- Handles real tax invoices and declarations
+- Strict validation and security requirements
+- Data is legally binding and reported to tax authorities
+- Requires production API credentials
+- Must be used for actual business operations
+
+<Warning>
+Never use production credentials or endpoints during development and testing. Always test thoroughly in the pilot environment first.
+</Warning>
+
+## Environment Configuration
+
+### Basic Environment Setup
+
+The SDK requires two key components for environment configuration:
+
+1. **Base URL**: The SIAT service endpoint
+2. **API Token**: Authentication credentials for the environment
+
+```go
+import (
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+)
+
+// Development environment
+devClient, err := siat.New(
+    "https://pilotosiatservicios.impuestos.gob.bo/v2",
+    nil,
+)
+
+devConfig := config.Config{
+    Token: "YOUR_DEV_TOKEN",
+}
+
+// Production environment
+prodClient, err := siat.New(
+    "https://siat.impuestos.gob.bo/v2",
+    nil,
+)
+
+prodConfig := config.Config{
+    Token: "YOUR_PROD_TOKEN",
+}
+```
+
+### Environment-Aware Configuration
+
+Create a configuration structure that handles both environments:
+
+```go
+package main
+
+import (
+    "fmt"
+    "os"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+)
+
+type Environment string
+
+const (
+    Development Environment = "development"
+    Production  Environment = "production"
+)
+
+type SiatConfig struct {
+    BaseURL string
+    Token   string
+}
+
+func GetSiatConfig(env Environment) (*SiatConfig, error) {
+    switch env {
+    case Development:
+        return &SiatConfig{
+            BaseURL: "https://pilotosiatservicios.impuestos.gob.bo/v2",
+            Token:   os.Getenv("SIAT_DEV_TOKEN"),
+        }, nil
+    case Production:
+        return &SiatConfig{
+            BaseURL: "https://siat.impuestos.gob.bo/v2",
+            Token:   os.Getenv("SIAT_PROD_TOKEN"),
+        }, nil
+    default:
+        return nil, fmt.Errorf("unknown environment: %s", env)
+    }
+}
+
+func main() {
+    // Get environment from environment variable or command line
+    env := Environment(os.Getenv("ENVIRONMENT"))
+    if env == "" {
+        env = Development // Default to development
+    }
+    
+    cfg, err := GetSiatConfig(env)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Initialize SDK with environment configuration
+    s, err := siat.New(cfg.BaseURL, nil)
+    if err != nil {
+        panic(err)
+    }
+    
+    authConfig := config.Config{
+        Token: cfg.Token,
+    }
+    
+    // Use the configured client
+    _ = s
+    _ = authConfig
+}
+```
+
+## Service Endpoints by Environment
+
+Each environment has four main service endpoints. The SDK automatically constructs the full URL by combining the base URL with the service path (as defined in `index_service.go:14`):
+
+| Service | Path | Full Development URL | Full Production URL |
+|---------|------|---------------------|--------------------|
+| Codigos | `/FacturacionCodigos` | `https://pilotosiatservicios.impuestos.gob.bo/v2/FacturacionCodigos` | `https://siat.impuestos.gob.bo/v2/FacturacionCodigos` |
+| Operaciones | `/FacturacionOperaciones` | `https://pilotosiatservicios.impuestos.gob.bo/v2/FacturacionOperaciones` | `https://siat.impuestos.gob.bo/v2/FacturacionOperaciones` |
+| Sincronizacion | `/FacturacionSincronizacion` | `https://pilotosiatservicios.impuestos.gob.bo/v2/FacturacionSincronizacion` | `https://siat.impuestos.gob.bo/v2/FacturacionSincronizacion` |
+| CompraVenta | `/ServicioFacturacionCompraVenta` | `https://pilotosiatservicios.impuestos.gob.bo/v2/ServicioFacturacionCompraVenta` | `https://siat.impuestos.gob.bo/v2/ServicioFacturacionCompraVenta` |
+
+<Info>
+The SDK handles URL construction automatically. You only need to provide the base URL when initializing with `siat.New()`.
+</Info>
+
+## Environment-Specific Parameters
+
+Certain request parameters have different values depending on the environment:
+
+### Codigo Ambiente (Environment Code)
+
+The `CodigoAmbiente` parameter identifies which environment you're using:
+
+- **Development**: `2` (Pilot/Test environment)
+- **Production**: `1` (Production environment)
+
+```go
+// Development request
+devReq := models.Codigos.NewCuisRequest().
+    WithCodigoAmbiente(2). // Development
+    WithNit(123456789).
+    WithCodigoSistema("ABC123").
+    Build()
+
+// Production request
+prodReq := models.Codigos.NewCuisRequest().
+    WithCodigoAmbiente(1). // Production
+    WithNit(123456789).
+    WithCodigoSistema("ABC123").
+    Build()
+```
+
+<Warning>
+Always ensure the `CodigoAmbiente` parameter matches the base URL you're using. Using mismatched values will result in errors.
+</Warning>
+
+### Complete Environment Configuration
+
+```go
+type RequestConfig struct {
+    Environment     Environment
+    CodigoAmbiente  int
+    Nit             int64
+    CodigoSistema   string
+    CodigoSucursal  int
+    CodigoPuntoVenta int
+}
+
+func NewRequestConfig(env Environment, nit int64, sistema string) RequestConfig {
+    cfg := RequestConfig{
+        Environment:    env,
+        Nit:           nit,
+        CodigoSistema: sistema,
+    }
+    
+    // Set environment code based on environment
+    if env == Production {
+        cfg.CodigoAmbiente = 1
+    } else {
+        cfg.CodigoAmbiente = 2
+    }
+    
+    return cfg
+}
+```
+
+## Environment Best Practices
+
+### 1. Use Environment Variables
+
+Store environment-specific configuration in environment variables:
+
+```bash
+# Development .env file
+ENVIRONMENT=development
+SIAT_BASE_URL=https://pilotosiatservicios.impuestos.gob.bo/v2
+SIAT_API_TOKEN=your_dev_token_here
+CODIGO_AMBIENTE=2
+
+# Production .env file
+ENVIRONMENT=production
+SIAT_BASE_URL=https://siat.impuestos.gob.bo/v2
+SIAT_API_TOKEN=your_prod_token_here
+CODIGO_AMBIENTE=1
+```
+
+Load them in your application:
+
+```go
+import (
+    "os"
+    "strconv"
+    
+    "github.com/joho/godotenv" // Popular .env loader
+)
+
+func init() {
+    // Load .env file
+    godotenv.Load()
+}
+
+func main() {
+    baseURL := os.Getenv("SIAT_BASE_URL")
+    token := os.Getenv("SIAT_API_TOKEN")
+    codigoAmbiente, _ := strconv.Atoi(os.Getenv("CODIGO_AMBIENTE"))
+    
+    s, err := siat.New(baseURL, nil)
+    if err != nil {
+        panic(err)
+    }
+    
+    cfg := config.Config{Token: token}
+    
+    // Use codigoAmbiente in requests...
+}
+```
+
+### 2. Implement Environment Guards
+
+Prevent accidental production operations:
+
+```go
+type SafeSiatClient struct {
+    client      *siat.siatServices
+    environment Environment
+    config      config.Config
+}
+
+func (sc *SafeSiatClient) RequireProduction() error {
+    if sc.environment != Production {
+        return fmt.Errorf("this operation requires production environment")
+    }
+    return nil
+}
+
+func (sc *SafeSiatClient) RequireDevelopment() error {
+    if sc.environment != Development {
+        return fmt.Errorf("this operation is only allowed in development")
+    }
+    return nil
+}
+
+// Example usage
+func (sc *SafeSiatClient) SubmitRealInvoice(ctx context.Context, req any) error {
+    if err := sc.RequireProduction(); err != nil {
+        return err
+    }
+    
+    // Submit invoice to production
+    _, err := sc.client.CompraVenta.RecepcionFactura(ctx, sc.config, req)
+    return err
+}
+```
+
+### 3. Separate HTTP Clients per Environment
+
+Use different HTTP client configurations for each environment:
+
+```go
+import (
+    "net/http"
+    "time"
+)
+
+func createHTTPClient(env Environment) *http.Client {
+    client := &http.Client{}
+    
+    if env == Development {
+        // More lenient timeouts for development
+        client.Timeout = 30 * time.Second
+    } else {
+        // Stricter timeouts for production
+        client.Timeout = 15 * time.Second
+    }
+    
+    return client
+}
+
+func initializeSiatClient(env Environment) (*siat.siatServices, error) {
+    cfg, err := GetSiatConfig(env)
+    if err != nil {
+        return nil, err
+    }
+    
+    httpClient := createHTTPClient(env)
+    return siat.New(cfg.BaseURL, httpClient)
+}
+```
+
+### 4. Environment-Specific Logging
+
+```go
+import "log"
+
+type Logger struct {
+    env Environment
+}
+
+func (l *Logger) Info(msg string, args ...interface{}) {
+    prefix := fmt.Sprintf("[%s] ", l.env)
+    log.Printf(prefix+msg, args...)
+}
+
+func (l *Logger) Warn(msg string, args ...interface{}) {
+    if l.env == Production {
+        // Send to monitoring service in production
+        // alerting.SendWarning(fmt.Sprintf(msg, args...))
+    }
+    prefix := fmt.Sprintf("[%s] WARNING: ", l.env)
+    log.Printf(prefix+msg, args...)
+}
+```
+
+## Testing Across Environments
+
+### Unit Tests (No External Calls)
+
+```go
+func TestEnvironmentConfiguration(t *testing.T) {
+    tests := []struct {
+        name        string
+        env         Environment
+        expectedURL string
+        expectedCode int
+    }{
+        {
+            name:        "Development",
+            env:         Development,
+            expectedURL: "https://pilotosiatservicios.impuestos.gob.bo/v2",
+            expectedCode: 2,
+        },
+        {
+            name:        "Production",
+            env:         Production,
+            expectedURL: "https://siat.impuestos.gob.bo/v2",
+            expectedCode: 1,
+        },
+    }
+    
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            cfg, err := GetSiatConfig(tt.env)
+            if err != nil {
+                t.Fatalf("Failed to get config: %v", err)
+            }
+            
+            if cfg.BaseURL != tt.expectedURL {
+                t.Errorf("Expected URL %s, got %s", tt.expectedURL, cfg.BaseURL)
+            }
+        })
+    }
+}
+```
+
+### Integration Tests (Development Only)
+
+```go
+func TestCuisRequestDevelopment(t *testing.T) {
+    if testing.Short() {
+        t.Skip("Skipping integration test")
+    }
+    
+    // Force development environment
+    cfg, err := GetSiatConfig(Development)
+    if err != nil {
+        t.Fatalf("Failed to get config: %v", err)
+    }
+    
+    s, err := siat.New(cfg.BaseURL, nil)
+    if err != nil {
+        t.Fatalf("Failed to create client: %v", err)
+    }
+    
+    authCfg := config.Config{Token: cfg.Token}
+    
+    req := models.Codigos.NewCuisRequest().
+        WithCodigoAmbiente(2). // Development
+        WithNit(123456789).
+        WithCodigoSistema("TEST123").
+        Build()
+    
+    ctx := context.Background()
+    resp, err := s.Codigos.SolicitudCuis(ctx, authCfg, req)
+    
+    if err != nil {
+        t.Fatalf("Request failed: %v", err)
+    }
+    
+    if resp.Body.Content.RespuestaCuis.Codigo == "" {
+        t.Error("Expected non-empty CUIS code")
+    }
+}
+```
+
+## Migration from Development to Production
+
+### Pre-Production Checklist
+
+<Steps>
+  <Step title="Complete Development Testing">
+    - All functionality tested in development environment
+    - Edge cases and error scenarios validated
+    - Integration tests passing consistently
+  </Step>
+  
+  <Step title="Obtain Production Credentials">
+    - Register with SIAT for production access
+    - Obtain production API token
+    - Configure production certificate (if required)
+  </Step>
+  
+  <Step title="Update Environment Configuration">
+    - Set production base URL
+    - Configure production API token
+    - Update `CodigoAmbiente` to `1`
+    - Verify all environment-specific parameters
+  </Step>
+  
+  <Step title="Implement Monitoring">
+    - Set up production logging
+    - Configure error alerting
+    - Implement performance monitoring
+    - Set up audit trails for compliance
+  </Step>
+  
+  <Step title="Production Validation">
+    - Verify communication with production endpoints
+    - Test with minimal real transactions
+    - Confirm data appears correctly in SIAT system
+    - Validate invoice generation and acceptance
+  </Step>
+</Steps>
+
+### Configuration Migration Example
+
+```go
+type MigrationConfig struct {
+    FromEnv Environment
+    ToEnv   Environment
+}
+
+func ValidateMigration(mc MigrationConfig) error {
+    if mc.FromEnv != Development {
+        return fmt.Errorf("can only migrate from development")
+    }
+    if mc.ToEnv != Production {
+        return fmt.Errorf("can only migrate to production")
+    }
+    
+    // Validate production credentials exist
+    prodCfg, err := GetSiatConfig(Production)
+    if err != nil {
+        return fmt.Errorf("production config not available: %w", err)
+    }
+    
+    if prodCfg.Token == "" {
+        return fmt.Errorf("production token not configured")
+    }
+    
+    return nil
+}
+```
+
+## Troubleshooting Environment Issues
+
+### Common Problems
+
+<AccordionGroup>
+  <Accordion title="Wrong Environment Code">
+    **Symptom**: Requests fail with validation errors
+    
+    **Solution**: Ensure `CodigoAmbiente` matches your base URL:
+    - Development URL → `CodigoAmbiente = 2`
+    - Production URL → `CodigoAmbiente = 1`
+  </Accordion>
+  
+  <Accordion title="Mixed Credentials">
+    **Symptom**: Authentication errors
+    
+    **Solution**: Verify you're not using development token with production URL or vice versa
+  </Accordion>
+  
+  <Accordion title="Certificate Errors">
+    **Symptom**: TLS/SSL handshake failures
+    
+    **Solution**: Ensure your Go application trusts the SIAT certificate chain. Update system certificates if needed.
+  </Accordion>
+  
+  <Accordion title="Timeout Issues">
+    **Symptom**: Requests timing out in production
+    
+    **Solution**: Production may have different response times. Adjust HTTP client timeout settings accordingly.
+  </Accordion>
+</AccordionGroup>
+
+## Environment Comparison
+
+| Aspect | Development | Production |
+|--------|-------------|------------|
+| Base URL | `pilotosiatservicios.impuestos.gob.bo` | `siat.impuestos.gob.bo` |
+| Codigo Ambiente | `2` | `1` |
+| Data Impact | Test data only | Legal tax records |
+| Credentials | Separate test token | Production token |
+| Validation | May be relaxed | Strict compliance |
+| Monitoring | Optional | Required |
+| Error Tolerance | High | Low |
+| Rate Limits | Usually higher | May be stricter |
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Get started with your first API call
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/codigos/cuis">
+    Explore available API methods
+  </Card>
+</CardGroup>

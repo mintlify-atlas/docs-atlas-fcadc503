@@ -1,0 +1,708 @@
+---
+title: 'Punto de Venta Operations'
+description: 'Register, query, and close punto de venta (point of sale)'
+---
+
+## Overview
+
+Punto de Venta operations allow you to manage point of sale registrations in the SIAT system. These operations are required before you can issue invoices from a specific location or sales point.
+
+## Registro Punto de Venta
+
+Register a new point of sale in the SIAT system.
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) RegistroPuntoVenta(
+    ctx context.Context,
+    config config.Config,
+    req models.RegistroPuntoVentaRequest,
+) (*soap.EnvelopeResponse[operaciones.RegistroPuntoVentaResponse], error)
+```
+
+### Building the Request
+
+Use the builder pattern to construct the request:
+
+```go
+request := models.Operaciones.NewRegistroPuntoVentaRequest().
+    WithCodigoAmbiente(2).                    // 1=Production, 2=Testing
+    WithCodigoModalidad(1).                   // 1=Electronic, 2=Electronic with internet
+    WithCodigoSistema("1AB2C3D4E5F6").        // System code from SIAT
+    WithCodigoSucursal(0).                    // Branch code (0=main office)
+    WithCodigoTipoPuntoVenta(1).              // 1=Fixed, 2=Mobile
+    WithCuis("ABCD1234").                     // Current CUIS
+    WithDescripcion("Point of sale 1").       // Description
+    WithNit(123456789).                       // Tax ID (NIT)
+    WithNombrePuntoVenta("Main Store").       // Point of sale name
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code:
+  - `1`: Production
+  - `2`: Testing/Pilot
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Billing modality code:
+  - `1`: Electronic invoicing
+  - `2`: Electronic invoicing with internet connection
+  - `3`: Electronic invoicing with offline synchronization
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT during registration
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code. Use `0` for the main office or headquarters
+</ParamField>
+
+<ParamField path="codigoTipoPuntoVenta" type="int" required>
+  Type of point of sale:
+  - `1`: Fixed point of sale
+  - `2`: Mobile point of sale
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS (Código Único de Inicio de Sistema) for the branch
+</ParamField>
+
+<ParamField path="descripcion" type="string" required>
+  Description or details about the point of sale
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number (NIT)
+</ParamField>
+
+<ParamField path="nombrePuntoVenta" type="string" required>
+  Name or identifier for the point of sale
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if registration was successful
+</ResponseField>
+
+<ResponseField name="codigoPuntoVenta" type="int">
+  Assigned code for the newly registered point of sale. Save this value for future operations.
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors from the service
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    // Initialize client
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Build request
+    request := models.Operaciones.NewRegistroPuntoVentaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("1AB2C3D4E5F6").
+        WithCodigoSucursal(0).
+        WithCodigoTipoPuntoVenta(1).
+        WithCuis("ABCD1234").
+        WithDescripcion("Point of sale 1").
+        WithNit(123456789).
+        WithNombrePuntoVenta("Main Store").
+        Build()
+    
+    // Configure authentication
+    cfg := config.Config{
+        Token: "your-api-token",
+    }
+    
+    // Execute request
+    ctx := context.Background()
+    resp, err := client.Operaciones.RegistroPuntoVenta(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    // Check response
+    if resp.Body.Response.Respuesta.Transaccion {
+        fmt.Printf("Point of sale registered: %d\n", 
+            resp.Body.Response.Respuesta.CodigoPuntoVenta)
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+---
+
+## Consulta Punto de Venta
+
+Query and list all registered points of sale for a branch.
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) ConsultaPuntoVenta(
+    ctx context.Context,
+    config config.Config,
+    req models.ConsultaPuntoVentaRequest,
+) (*soap.EnvelopeResponse[operaciones.ConsultaPuntoVentaResponse], error)
+```
+
+### Building the Request
+
+```go
+request := models.Operaciones.NewConsultaPuntoVentaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoSistema("1AB2C3D4E5F6").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(123456789).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=Production, 2=Testing)
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS for the branch
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if query was successful
+</ResponseField>
+
+<ResponseField name="listaPuntosVentas" type="[]PuntosVentasDto">
+  Array of registered points of sale
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors
+</ResponseField>
+
+#### PuntosVentasDto Structure
+
+<ResponseField name="codigoPuntoVenta" type="int">
+  Point of sale code
+</ResponseField>
+
+<ResponseField name="nombrePuntoVenta" type="string">
+  Point of sale name
+</ResponseField>
+
+<ResponseField name="tipoPuntoVenta" type="string">
+  Point of sale type description
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    request := models.Operaciones.NewConsultaPuntoVentaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoSistema("1AB2C3D4E5F6").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(123456789).
+        Build()
+    
+    cfg := config.Config{Token: "your-api-token"}
+    ctx := context.Background()
+    
+    resp, err := client.Operaciones.ConsultaPuntoVenta(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    if resp.Body.Response.Respuesta.Transaccion {
+        fmt.Println("Registered points of sale:")
+        for _, pv := range resp.Body.Response.Respuesta.ListaPuntosVentas {
+            fmt.Printf("- [%d] %s (%s)\n",
+                pv.CodigoPuntoVenta,
+                pv.NombrePuntoVenta,
+                pv.TipoPuntoVenta)
+        }
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+---
+
+## Cierre Punto de Venta
+
+Close an existing point of sale, preventing it from issuing new invoices.
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) CierrePuntoVenta(
+    ctx context.Context,
+    config config.Config,
+    req models.CierrePuntoVentaRequest,
+) (*soap.EnvelopeResponse[operaciones.CierrePuntoVentaResponse], error)
+```
+
+### Building the Request
+
+```go
+request := models.Operaciones.NewCierrePuntoVentaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(1).                  // Point of sale code to close
+    WithCodigoSistema("1AB2C3D4E5F6").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(123456789).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=Production, 2=Testing)
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int" required>
+  Code of the point of sale to close
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS for the branch
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if closure was successful
+</ResponseField>
+
+<ResponseField name="codigoPuntoVenta" type="int">
+  Code of the closed point of sale
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    request := models.Operaciones.NewCierrePuntoVentaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoPuntoVenta(1).
+        WithCodigoSistema("1AB2C3D4E5F6").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(123456789).
+        Build()
+    
+    cfg := config.Config{Token: "your-api-token"}
+    ctx := context.Background()
+    
+    resp, err := client.Operaciones.CierrePuntoVenta(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    if resp.Body.Response.Respuesta.Transaccion {
+        fmt.Printf("Point of sale closed: %d\n",
+            resp.Body.Response.Respuesta.CodigoPuntoVenta)
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+---
+
+## Registro Comisionista
+
+Register a commission agent (comisionista) point of sale with contract details.
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) RegistroPuntoVentaComisionista(
+    ctx context.Context,
+    config config.Config,
+    req models.RegistroPuntoVentaComisionistaRequest,
+) (*soap.EnvelopeResponse[operaciones.RegistroPuntoVentaComisionistaResponse], error)
+```
+
+### Building the Request
+
+```go
+import "time"
+
+request := models.Operaciones.NewRegistroPuntoVentaComisionistaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("1AB2C3D4E5F6").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(123456789).
+    WithNitComisionista(987654321).           // Commission agent's NIT
+    WithNombrePuntoVenta("Agent Store").
+    WithDescripcion("Commission sales point").
+    WithNumeroContrato("CONTRACT-001").       // Contract number
+    WithFechaInicio(time.Now()).              // Contract start date
+    WithFechaFin(time.Now().AddDate(1, 0, 0)). // Contract end date
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=Production, 2=Testing)
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Billing modality code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS for the branch
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+<ParamField path="nitComisionista" type="int64" required>
+  Commission agent's tax identification number (NIT)
+</ParamField>
+
+<ParamField path="nombrePuntoVenta" type="string" required>
+  Name for the commission agent's point of sale
+</ParamField>
+
+<ParamField path="descripcion" type="string" required>
+  Description of the commission agent point of sale
+</ParamField>
+
+<ParamField path="numeroContrato" type="string" required>
+  Contract number or identifier
+</ParamField>
+
+<ParamField path="fechaInicio" type="time.Time" required>
+  Contract start date
+</ParamField>
+
+<ParamField path="fechaFin" type="time.Time" required>
+  Contract end date
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if registration was successful
+</ResponseField>
+
+<ResponseField name="codigoPuntoVenta" type="int">
+  Assigned code for the commission agent's point of sale
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Contract valid for 1 year
+    startDate := time.Now()
+    endDate := startDate.AddDate(1, 0, 0)
+    
+    request := models.Operaciones.NewRegistroPuntoVentaComisionistaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("1AB2C3D4E5F6").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(123456789).
+        WithNitComisionista(987654321).
+        WithNombrePuntoVenta("Agent Store").
+        WithDescripcion("Commission sales point").
+        WithNumeroContrato("CONTRACT-001").
+        WithFechaInicio(startDate).
+        WithFechaFin(endDate).
+        Build()
+    
+    cfg := config.Config{Token: "your-api-token"}
+    ctx := context.Background()
+    
+    resp, err := client.Operaciones.RegistroPuntoVentaComisionista(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    if resp.Body.Response.Respuesta.Transaccion {
+        fmt.Printf("Commission agent registered: %d\n",
+            resp.Body.Response.Respuesta.CodigoPuntoVenta)
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+---
+
+## Cierre Operaciones Sistema
+
+Close all operations for a system (typically at the end of fiscal period).
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) CierreOperacionesSistema(
+    ctx context.Context,
+    config config.Config,
+    req models.CierreOperacionesSistemaRequest,
+) (*soap.EnvelopeResponse[operaciones.CierreOperacionesSistemaResponse], error)
+```
+
+### Building the Request
+
+```go
+request := models.Operaciones.NewCierreOperacionesSistemaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoModalidad(1).
+    WithCodigoPuntoVenta(1).                  // Optional
+    WithCodigoSistema("1AB2C3D4E5F6").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(123456789).
+    Build()
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=Production, 2=Testing)
+</ParamField>
+
+<ParamField path="codigoModalidad" type="int" required>
+  Billing modality code
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int">
+  Optional point of sale code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS for the branch
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if system closure was successful
+</ResponseField>
+
+<ResponseField name="codigoSistema" type="string">
+  System code that was closed
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    request := models.Operaciones.NewCierreOperacionesSistemaRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoModalidad(1).
+        WithCodigoSistema("1AB2C3D4E5F6").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(123456789).
+        Build()
+    
+    cfg := config.Config{Token: "your-api-token"}
+    ctx := context.Background()
+    
+    resp, err := client.Operaciones.CierreOperacionesSistema(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    if resp.Body.Response.Respuesta.Transaccion {
+        fmt.Printf("System operations closed: %s\n",
+            resp.Body.Response.Respuesta.CodigoSistema)
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Operaciones Overview" icon="gears" href="/api/operaciones/overview">
+    Overview of Operaciones service
+  </Card>
+  <Card title="Eventos Significativos" icon="calendar-day" href="/api/operaciones/eventos-significativos">
+    Significant event operations
+  </Card>
+  <Card title="Codigos Service" icon="hashtag" href="/api/codigos/overview">
+    Get CUIS for punto de venta
+  </Card>
+  <Card title="Compra Venta Service" icon="file-invoice" href="/api/compra-venta/overview">
+    Issue invoices from punto de venta
+  </Card>
+</CardGroup>

@@ -1,0 +1,303 @@
+---
+title: 'Products and Services'
+description: 'Synchronize product and service catalogs'
+---
+
+The products and services synchronization method retrieves the catalog of standardized products and services associated with your economic activities from SIAT.
+
+## SincronizarListaProductosServicios
+
+Synchronize the catalog of products and services homologated with SIAT for your registered economic activities.
+
+### Request Builder
+
+```go
+request := models.Sincronizacion.NewSincronizarListaProductosServiciosRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+### Parameters
+
+See [common parameters](/api/sincronizacion/overview#common-request-parameters) for all synchronization requests.
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=production, 2=development)
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int" required>
+  Point of sale code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch office code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  CUIS (Código Único de Inicio de Sesión)
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Tax identification number (NIT)
+</ParamField>
+
+### Response Structure
+
+```go
+type SincronizarListaProductosServiciosResponse struct {
+    RespuestaListaProductos RespuestaListaProductos
+}
+
+type RespuestaListaProductos struct {
+    Transaccion  bool                    // Operation success indicator
+    ListaCodigos []ListaCodigosProductos // List of products/services
+}
+
+type ListaCodigosProductos struct {
+    CodigoActividad     uint64 // Economic activity code (CAEB)
+    CodigoProducto      uint64 // Product/service code
+    DescripcionProducto string // Product/service description
+}
+```
+
+### Response Fields
+
+<ResponseField name="RespuestaListaProductos.Transaccion" type="bool">
+  Indicates if the synchronization was successful
+</ResponseField>
+
+<ResponseField name="RespuestaListaProductos.ListaCodigos" type="[]ListaCodigosProductos">
+  Array of products and services associated with your activities
+</ResponseField>
+
+<ResponseField name="ListaCodigosProductos.CodigoActividad" type="uint64">
+  The CAEB code of the economic activity this product/service is associated with
+</ResponseField>
+
+<ResponseField name="ListaCodigosProductos.CodigoProducto" type="uint64">
+  The unique product/service code assigned by SIAT
+</ResponseField>
+
+<ResponseField name="ListaCodigosProductos.DescripcionProducto" type="string">
+  The standardized description of the product or service
+</ResponseField>
+
+## Usage Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    cfg := config.Config{
+        Token: "your-api-token",
+    }
+    
+    client, err := gosiat.NewSiatClient(cfg)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Build the synchronization request
+    request := models.Sincronizacion.NewSincronizarListaProductosServiciosRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(1234567890).
+        Build()
+    
+    // Execute the synchronization
+    response, err := client.Sincronizacion.SincronizarListaProductosServicios(
+        context.Background(),
+        cfg,
+        request,
+    )
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Check if transaction was successful
+    if !response.RespuestaListaProductos.Transaccion {
+        log.Fatal("Synchronization failed")
+    }
+    
+    // Process the products/services
+    fmt.Printf("Retrieved %d products/services\n", 
+        len(response.RespuestaListaProductos.ListaCodigos))
+    
+    for _, producto := range response.RespuestaListaProductos.ListaCodigos {
+        fmt.Printf("Activity: %d, Code: %d, Description: %s\n",
+            producto.CodigoActividad,
+            producto.CodigoProducto,
+            producto.DescripcionProducto)
+    }
+}
+```
+
+## Filtering by Activity
+
+You can filter the synchronized products by economic activity:
+
+```go
+response, err := client.Sincronizacion.SincronizarListaProductosServicios(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Filter products for a specific activity
+targetActivity := uint64(620100)
+var filteredProducts []sincronizacion.ListaCodigosProductos
+
+for _, producto := range response.RespuestaListaProductos.ListaCodigos {
+    if producto.CodigoActividad == targetActivity {
+        filteredProducts = append(filteredProducts, producto)
+    }
+}
+
+fmt.Printf("Found %d products for activity %d\n", 
+    len(filteredProducts), targetActivity)
+```
+
+## Building a Product Lookup Map
+
+Create a lookup map for efficient product searches:
+
+```go
+response, err := client.Sincronizacion.SincronizarListaProductosServicios(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Build a map for quick lookups
+productMap := make(map[uint64]sincronizacion.ListaCodigosProductos)
+
+for _, producto := range response.RespuestaListaProductos.ListaCodigos {
+    productMap[producto.CodigoProducto] = producto
+}
+
+// Look up a product by code
+productCode := uint64(12345)
+if producto, exists := productMap[productCode]; exists {
+    fmt.Printf("Found: %s (Activity: %d)\n",
+        producto.DescripcionProducto,
+        producto.CodigoActividad)
+} else {
+    fmt.Printf("Product %d not found\n", productCode)
+}
+```
+
+## Caching Strategy
+
+Since product catalogs don't change frequently, consider caching the results:
+
+```go
+type ProductCache struct {
+    Products  []sincronizacion.ListaCodigosProductos
+    UpdatedAt time.Time
+}
+
+var cache *ProductCache
+var cacheMutex sync.RWMutex
+
+func GetProducts(client *gosiat.SiatClient, cfg config.Config) ([]sincronizacion.ListaCodigosProductos, error) {
+    cacheMutex.RLock()
+    if cache != nil && time.Since(cache.UpdatedAt) < 24*time.Hour {
+        products := cache.Products
+        cacheMutex.RUnlock()
+        return products, nil
+    }
+    cacheMutex.RUnlock()
+    
+    // Cache expired or doesn't exist, fetch new data
+    request := models.Sincronizacion.NewSincronizarListaProductosServiciosRequest().
+        WithCodigoAmbiente(2).
+        WithCodigoPuntoVenta(0).
+        WithCodigoSistema("ABC123").
+        WithCodigoSucursal(0).
+        WithCuis("ABCD1234").
+        WithNit(1234567890).
+        Build()
+    
+    response, err := client.Sincronizacion.SincronizarListaProductosServicios(
+        context.Background(),
+        cfg,
+        request,
+    )
+    if err != nil {
+        return nil, err
+    }
+    
+    // Update cache
+    cacheMutex.Lock()
+    cache = &ProductCache{
+        Products:  response.RespuestaListaProductos.ListaCodigos,
+        UpdatedAt: time.Now(),
+    }
+    products := cache.Products
+    cacheMutex.Unlock()
+    
+    return products, nil
+}
+```
+
+## Error Handling
+
+```go
+response, err := client.Sincronizacion.SincronizarListaProductosServicios(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Printf("Failed to synchronize products: %v", err)
+    return err
+}
+
+if !response.RespuestaListaProductos.Transaccion {
+    log.Println("SIAT returned transaction failed")
+    return fmt.Errorf("synchronization transaction failed")
+}
+
+if len(response.RespuestaListaProductos.ListaCodigos) == 0 {
+    log.Println("Warning: No products returned")
+}
+```
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="Activities" icon="briefcase" href="/api/sincronizacion/actividades">
+    Synchronize economic activities
+  </Card>
+  <Card title="Parametric Catalogs" icon="list" href="/api/sincronizacion/parametricas">
+    Synchronize standard SIAT parametric catalogs
+  </Card>
+</CardGroup>

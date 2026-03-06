@@ -1,0 +1,426 @@
+---
+title: 'XML Digital Signatures'
+description: 'Understand and implement XML digital signatures for invoices'
+icon: 'signature'
+---
+
+## Overview
+
+Digital signatures are mandatory for electronic invoices in Bolivia. The go-siat SDK provides utilities to sign XML documents using the XMLDSig standard with enveloped signatures.
+
+<Info>
+The SDK uses the `goxmldsig` library for signing and `etree` for XML canonicalization (C14N), ensuring compliance with SIAT requirements.
+</Info>
+
+## Digital Certificate Requirements
+
+Before signing invoices, you need:
+
+1. **Private Key** (RSA format): Your signing key in PEM format
+2. **Digital Certificate**: X.509 certificate issued by AGETIC (Bolivian e-Government Agency)
+3. **Certificate Chain**: Root and intermediate certificates (if applicable)
+
+<Warning>
+Certificates must be obtained from authorized certification authorities recognized by AGETIC. Self-signed certificates are not valid for production.
+</Warning>
+
+## Certificate Formats
+
+The SDK supports two private key formats:
+
+### PKCS#1 Format
+
+```text
+-----BEGIN RSA PRIVATE KEY-----
+MIIEpAIBAAKCAQEA...
+-----END RSA PRIVATE KEY-----
+```
+
+### PKCS#8 Format
+
+```text
+-----BEGIN PRIVATE KEY-----
+MIIEvQIBADANBgkq...
+-----END PRIVATE KEY-----
+```
+
+<Note>
+The SDK automatically detects and parses both formats. No configuration needed.
+</Note>
+
+## Signing Process
+
+The signing process follows these steps:
+
+<Steps>
+  <Step title="Load Private Key and Certificate">
+    The SDK loads your credentials from PEM files:
+
+    ```go
+    signedXML, err := models.CompraVenta.SignXML(
+        xmlBytes,     // Unsigned XML document
+        "key.pem",    // Path to private key
+        "cert.crt",   // Path to certificate
+    )
+    if err != nil {
+        log.Fatalf("Signing failed: %v", err)
+    }
+    ```
+  </Step>
+
+  <Step title="XML Canonicalization">
+    The SDK applies C14N (Canonical XML) to ensure consistent representation:
+
+    - Removes insignificant whitespace
+    - Standardizes attribute ordering
+    - Normalizes namespace declarations
+    - Preserves comments (C14N with comments)
+  </Step>
+
+  <Step title="Generate Signature">
+    Creates an enveloped signature using:
+
+    - **Algorithm**: RSA-SHA256
+    - **Canonicalization**: C14N 1.0 with comments
+    - **Signature location**: Inside the root element
+  </Step>
+
+  <Step title="Embed Signature in XML">
+    The signature is embedded directly into the XML document:
+
+    ```xml
+    <facturaElectronicaCompraVenta>
+      <cabecera>...</cabecera>
+      <detalle>...</detalle>
+      <Signature xmlns="http://www.w3.org/2000/09/xmldsig#">
+        <SignedInfo>...</SignedInfo>
+        <SignatureValue>...</SignatureValue>
+        <KeyInfo>...</KeyInfo>
+      </Signature>
+    </facturaElectronicaCompraVenta>
+    ```
+  </Step>
+</Steps>
+
+## Implementation Details
+
+### Low-Level Signing Function
+
+The SDK's signing implementation (`pkg/util/signXML.go`):
+
+```go
+package util
+
+import (
+    "bytes"
+    "crypto/rsa"
+    "crypto/x509"
+    "encoding/pem"
+    "fmt"
+    "os"
+
+    "github.com/beevik/etree"
+    dsig "github.com/russellhaering/goxmldsig"
+)
+
+// SignXML signs an XML document with enveloped signature
+func SignXML(xmlBytes []byte, keyPath, certPath string) ([]byte, error) {
+    // Load private key
+    privKey, err := loadRSAPrivateKey(keyPath)
+    if err != nil {
+        return nil, err
+    }
+
+    // Load certificate
+    certData, err := os.ReadFile(certPath)
+    if err != nil {
+        return nil, fmt.Errorf("error reading certificate: %w", err)
+    }
+    
+    blockCert, _ := pem.Decode(certData)
+    if blockCert == nil {
+        return nil, fmt.Errorf("error decoding certificate PEM")
+    }
+
+    // Configure signing context
+    ks := &pemKeyStore{
+        PrivateKey: privKey,
+        Cert:       blockCert.Bytes,
+    }
+
+    ctx := dsig.NewDefaultSigningContext(ks)
+    ctx.Canonicalizer = dsig.MakeC14N10WithCommentsCanonicalizer()
+    ctx.SetSignatureMethod(dsig.RSASHA256SignatureMethod)
+
+    // Parse and sign XML
+    doc := etree.NewDocument()
+    if err := doc.ReadFromBytes(xmlBytes); err != nil {
+        return nil, fmt.Errorf("error reading XML: %w", err)
+    }
+
+    signedElement, err := ctx.SignEnveloped(doc.Root())
+    if err != nil {
+        return nil, fmt.Errorf("error signing XML: %w", err)
+    }
+
+    // Convert back to bytes
+    signedDoc := etree.NewDocument()
+    signedDoc.SetRoot(signedElement)
+
+    var buf bytes.Buffer
+    if _, err := signedDoc.WriteTo(&buf); err != nil {
+        return nil, fmt.Errorf("error converting signed XML: %w", err)
+    }
+
+    return buf.Bytes(), nil
+}
+```
+
+### Key Loading Logic
+
+The SDK handles both PKCS#1 and PKCS#8 formats:
+
+```go
+func loadRSAPrivateKey(path string) (*rsa.PrivateKey, error) {
+    data, err := os.ReadFile(path)
+    if err != nil {
+        return nil, fmt.Errorf("error reading private key: %w", err)
+    }
+    
+    block, _ := pem.Decode(data)
+    if block == nil {
+        return nil, fmt.Errorf("invalid PEM format")
+    }
+
+    // Try PKCS#1 first
+    if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+        return key, nil
+    }
+
+    // Try PKCS#8
+    key, err := x509.ParsePKCS8PrivateKey(block.Bytes)
+    if err != nil {
+        return nil, fmt.Errorf("error parsing private key: %w", err)
+    }
+
+    rsaKey, ok := key.(*rsa.PrivateKey)
+    if !ok {
+        return nil, fmt.Errorf("private key is not RSA")
+    }
+
+    return rsaKey, nil
+}
+```
+
+## Testing Without Certificates
+
+During development, you can skip signing for testing:
+
+```go
+// Attempt to sign
+signedXML, err := models.CompraVenta.SignXML(xmlData, "key.pem", "cert.crt")
+if err != nil {
+    // In development/testing: use unsigned XML
+    fmt.Println("Warning: Using unsigned XML for testing")
+    signedXML = xmlData
+}
+
+// Continue with compression and submission
+```
+
+<Warning>
+Unsigned invoices will be rejected by production SIAT servers. Only use unsigned XML in pilot/test environments.
+</Warning>
+
+## Verifying Signatures
+
+To verify that your signatures are correct:
+
+### Manual Verification with xmlsec1
+
+```bash
+# Install xmlsec1 (Linux/macOS)
+sudo apt-get install xmlsec1  # Ubuntu/Debian
+brew install libxmlsec1        # macOS
+
+# Verify signature
+xmlsec1 --verify --pubkey-cert-pem cert.crt signed_invoice.xml
+```
+
+### Programmatic Verification
+
+```go
+import (
+    "github.com/beevik/etree"
+    dsig "github.com/russellhaering/goxmldsig"
+)
+
+func verifySignature(signedXML []byte, certPath string) error {
+    // Load certificate
+    certData, err := os.ReadFile(certPath)
+    if err != nil {
+        return err
+    }
+
+    // Parse document
+    doc := etree.NewDocument()
+    if err := doc.ReadFromBytes(signedXML); err != nil {
+        return err
+    }
+
+    // Verify signature
+    ctx := dsig.NewDefaultValidationContext(&dsig.MemoryX509CertificateStore{
+        Roots: []*x509.Certificate{ /* load cert */ },
+    })
+
+    _, err = ctx.Validate(doc.Root())
+    return err
+}
+```
+
+## Common Issues and Solutions
+
+<AccordionGroup>
+  <Accordion title="Invalid Certificate Format">
+    **Error**: `error decoding certificate PEM`
+
+    **Solution**: Ensure your certificate is in PEM format:
+    ```bash
+    # Convert DER to PEM
+    openssl x509 -inform DER -in cert.der -out cert.pem
+    ```
+  </Accordion>
+
+  <Accordion title="Private Key Mismatch">
+    **Error**: `signature validation failed`
+
+    **Solution**: Verify the private key matches the certificate:
+    ```bash
+    # Compare key and certificate modulus
+    openssl rsa -noout -modulus -in key.pem | openssl md5
+    openssl x509 -noout -modulus -in cert.pem | openssl md5
+    # Hashes should match
+    ```
+  </Accordion>
+
+  <Accordion title="Wrong Key Format">
+    **Error**: `private key is not RSA`
+
+    **Solution**: SIAT requires RSA keys. Convert if needed:
+    ```bash
+    # Convert EC to RSA (if possible)
+    openssl genrsa -out key.pem 2048
+    ```
+  </Accordion>
+
+  <Accordion title="Permission Denied">
+    **Error**: `error reading private key: permission denied`
+
+    **Solution**: Check file permissions:
+    ```bash
+    chmod 600 key.pem
+    chmod 644 cert.crt
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Best Practices
+
+<Warning>
+Private keys are extremely sensitive. Compromise of your signing key could allow unauthorized invoice creation.
+</Warning>
+
+### Key Storage
+
+- Store private keys in secure locations (not in version control)
+- Use restrictive file permissions (600 for private keys)
+- Consider hardware security modules (HSM) for production
+- Encrypt private keys at rest
+
+### Key Management
+
+```go
+// Good: Load from secure environment variables or secrets manager
+keyPath := os.Getenv("SIAT_KEY_PATH")
+certPath := os.Getenv("SIAT_CERT_PATH")
+
+// Bad: Hardcoded paths
+keyPath := "/home/user/keys/production_key.pem"  // Don't do this!
+```
+
+### Certificate Rotation
+
+- Monitor certificate expiration dates
+- Renew certificates before expiration
+- Test new certificates in pilot environment
+- Maintain audit logs of certificate changes
+
+```go
+import (
+    "crypto/x509"
+    "encoding/pem"
+    "time"
+)
+
+func checkCertificateExpiry(certPath string) (time.Time, error) {
+    certData, err := os.ReadFile(certPath)
+    if err != nil {
+        return time.Time{}, err
+    }
+
+    block, _ := pem.Decode(certData)
+    cert, err := x509.ParseCertificate(block.Bytes)
+    if err != nil {
+        return time.Time{}, err
+    }
+
+    // Warn if expiring within 30 days
+    if time.Until(cert.NotAfter) < 30*24*time.Hour {
+        log.Printf("Warning: Certificate expires on %s\n", cert.NotAfter)
+    }
+
+    return cert.NotAfter, nil
+}
+```
+
+## Production Checklist
+
+<Steps>
+  <Step title="Obtain Valid Certificates">
+    - Request certificates from AGETIC-approved CA
+    - Verify certificate validity period
+    - Test certificates in pilot environment
+  </Step>
+
+  <Step title="Secure Key Storage">
+    - Store keys in secure vault or HSM
+    - Set appropriate file permissions
+    - Implement access controls
+    - Enable audit logging
+  </Step>
+
+  <Step title="Test Signature Process">
+    - Sign sample invoices
+    - Verify signatures with xmlsec1
+    - Submit test invoices to pilot environment
+    - Validate acceptance by SIAT
+  </Step>
+
+  <Step title="Implement Monitoring">
+    - Monitor certificate expiration
+    - Log all signing operations
+    - Alert on signing failures
+    - Track signature validation rates
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Invoice Submission" icon="file-invoice" href="/guides/compra-venta">
+    Complete invoice workflow with signing
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle signing and validation errors
+  </Card>
+</CardGroup>

@@ -1,0 +1,472 @@
+---
+title: 'Eventos Significativos'
+description: 'Register and query significant events affecting invoicing operations'
+---
+
+## Overview
+
+Eventos Significativos (Significant Events) are operational incidents that affect your ability to issue invoices normally. The SIAT system requires you to register these events when they occur and close them when resolved. Common events include internet outages, system failures, or other situations that impact normal invoicing operations.
+
+## Registro Evento Significativo
+
+Register a new significant event that affects invoicing operations.
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) RegistroEventosSignificativos(
+    ctx context.Context,
+    config config.Config,
+    req models.RegistroEventoSignificativoRequest,
+) (*soap.EnvelopeResponse[operaciones.RegistroEventoSignificativoResponse], error)
+```
+
+### Building the Request
+
+<Note>
+The request builders for significant events are not yet implemented in the models package. You need to construct the domain types directly.
+</Note>
+
+```go
+import (
+    "time"
+    "github.com/ron86i/go-siat/internal/core/domain/facturacion/operaciones"
+)
+
+// Construct request directly
+request := &operaciones.RegistroEventoSignificativo{
+    SolicitudEventoSignificativo: operaciones.SolicitudEventoSignificativo{
+        CodigoAmbiente:        2,
+        CodigoMotivoEvento:    1,              // Event reason code
+        CodigoPuntoVenta:      1,              // Optional
+        CodigoSistema:         "1AB2C3D4E5F6",
+        CodigoSucursal:        0,
+        Cufd:                  "CUFD1234",     // Current CUFD
+        CufdEvento:            "CUFD5678",     // Event CUFD
+        Cuis:                  "ABCD1234",
+        Descripcion:           "Internet connection lost",
+        FechaHoraInicioEvento: time.Now(),     // Event start
+        FechaHoraFinEvento:    time.Now(),     // Event end (same for registration)
+        Nit:                   123456789,
+    },
+}
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=Production, 2=Testing)
+</ParamField>
+
+<ParamField path="codigoMotivoEvento" type="int" required>
+  Event reason code. Common codes:
+  - `1`: Internet connection failure
+  - `2`: System failure
+  - `3`: Power outage
+  - `4`: Computer equipment failure
+  
+  Use the Sincronizacion service to get the complete list of event codes.
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int">
+  Optional point of sale code affected by the event
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code
+</ParamField>
+
+<ParamField path="cufd" type="string" required>
+  Current daily code (CUFD) at the time of event registration
+</ParamField>
+
+<ParamField path="cufdEvento" type="string" required>
+  CUFD that was active when the event occurred
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS for the branch
+</ParamField>
+
+<ParamField path="descripcion" type="string" required>
+  Detailed description of the event
+</ParamField>
+
+<ParamField path="fechaHoraInicioEvento" type="time.Time" required>
+  Date and time when the event started
+</ParamField>
+
+<ParamField path="fechaHoraFinEvento" type="time.Time" required>
+  Date and time when the event ended. For ongoing events, use the current time.
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if event registration was successful
+</ResponseField>
+
+<ResponseField name="codigoRecepcionEventoSignificativo" type="int64">
+  Reception code assigned to the registered event. Save this value for reference.
+</ResponseField>
+
+<ResponseField name="listaCodigos" type="[]EventosSignificativosDto">
+  List of registered events (may include this event and related events)
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors
+</ResponseField>
+
+#### EventosSignificativosDto Structure
+
+<ResponseField name="codigoEvento" type="int">
+  Event code
+</ResponseField>
+
+<ResponseField name="codigoRecepcionEventoSignificativo" type="int64">
+  Reception code for the event
+</ResponseField>
+
+<ResponseField name="descripcion" type="string">
+  Event description
+</ResponseField>
+
+<ResponseField name="fechaInicio" type="string">
+  Event start date/time (formatted string)
+</ResponseField>
+
+<ResponseField name="fechaFin" type="string">
+  Event end date/time (formatted string)
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/internal/core/domain/facturacion/operaciones"
+    "github.com/ron86i/go-siat/pkg/config"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Event occurred 1 hour ago and lasted 30 minutes
+    eventStart := time.Now().Add(-1 * time.Hour)
+    eventEnd := eventStart.Add(30 * time.Minute)
+    
+    request := &operaciones.RegistroEventoSignificativo{
+        SolicitudEventoSignificativo: operaciones.SolicitudEventoSignificativo{
+            CodigoAmbiente:        2,
+            CodigoMotivoEvento:    1,  // Internet failure
+            CodigoSistema:         "1AB2C3D4E5F6",
+            CodigoSucursal:        0,
+            Cufd:                  "CURRENT_CUFD",
+            CufdEvento:            "EVENT_CUFD",
+            Cuis:                  "ABCD1234",
+            Descripcion:           "Internet connection lost for 30 minutes",
+            FechaHoraInicioEvento: eventStart,
+            FechaHoraFinEvento:    eventEnd,
+            Nit:                   123456789,
+        },
+    }
+    
+    cfg := config.Config{Token: "your-api-token"}
+    ctx := context.Background()
+    
+    resp, err := client.Operaciones.RegistroEventosSignificativos(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    if resp.Body.Response.Respuesta.Transaccion {
+        fmt.Printf("Event registered: %d\n",
+            resp.Body.Response.Respuesta.CodigoRecepcionEventoSignificativo)
+        
+        // List registered events
+        for _, evento := range resp.Body.Response.Respuesta.ListaCodigos {
+            fmt.Printf("- Event %d: %s (Code: %d)\n",
+                evento.CodigoRecepcionEventoSignificativo,
+                evento.Descripcion,
+                evento.CodigoEvento)
+        }
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+---
+
+## Consulta Eventos Significativos
+
+Query registered significant events for a specific date.
+
+### Method Signature
+
+```go
+func (s *SiatOperacionesService) ConsultaEventosSignificativos(
+    ctx context.Context,
+    config config.Config,
+    req models.ConsultaEventoSignificativoRequest,
+) (*soap.EnvelopeResponse[operaciones.ConsultaEventoSignificativoResponse], error)
+```
+
+### Building the Request
+
+<Note>
+The request builders for event queries are not yet implemented in the models package. You need to construct the domain types directly.
+</Note>
+
+```go
+import (
+    "time"
+    "github.com/ron86i/go-siat/internal/core/domain/facturacion/operaciones"
+)
+
+// Construct request directly
+request := &operaciones.ConsultaEventoSignificativo{
+    SolicitudConsultaEvento: operaciones.SolicitudConsultaEvento{
+        CodigoAmbiente:   2,
+        CodigoPuntoVenta: 1,
+        CodigoSistema:    "1AB2C3D4E5F6",
+        CodigoSucursal:   0,
+        Cuis:             "ABCD1234",
+        FechaEvento:      time.Now(),  // Query events for this date
+        Nit:              123456789,
+    },
+}
+```
+
+### Request Parameters
+
+<ParamField path="codigoAmbiente" type="int" required>
+  Environment code (1=Production, 2=Testing)
+</ParamField>
+
+<ParamField path="codigoPuntoVenta" type="int" required>
+  Point of sale code
+</ParamField>
+
+<ParamField path="codigoSistema" type="string" required>
+  System code assigned by SIAT
+</ParamField>
+
+<ParamField path="codigoSucursal" type="int" required>
+  Branch code
+</ParamField>
+
+<ParamField path="cuis" type="string" required>
+  Current CUIS for the branch
+</ParamField>
+
+<ParamField path="fechaEvento" type="time.Time" required>
+  Date to query events for
+</ParamField>
+
+<ParamField path="nit" type="int64" required>
+  Company's tax identification number
+</ParamField>
+
+### Response Structure
+
+<ResponseField name="transaccion" type="bool">
+  `true` if query was successful
+</ResponseField>
+
+<ResponseField name="listaCodigos" type="[]EventosSignificativosDto">
+  List of events registered for the specified date
+</ResponseField>
+
+<ResponseField name="mensajesList" type="[]MensajeServicio">
+  List of messages or errors
+</ResponseField>
+
+### Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+    "time"
+    
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/internal/core/domain/facturacion/operaciones"
+    "github.com/ron86i/go-siat/pkg/config"
+)
+
+func main() {
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    
+    // Query events for today
+    request := &operaciones.ConsultaEventoSignificativo{
+        SolicitudConsultaEvento: operaciones.SolicitudConsultaEvento{
+            CodigoAmbiente:   2,
+            CodigoPuntoVenta: 1,
+            CodigoSistema:    "1AB2C3D4E5F6",
+            CodigoSucursal:   0,
+            Cuis:             "ABCD1234",
+            FechaEvento:      time.Now(),
+            Nit:              123456789,
+        },
+    }
+    
+    cfg := config.Config{Token: "your-api-token"}
+    ctx := context.Background()
+    
+    resp, err := client.Operaciones.ConsultaEventosSignificativos(ctx, cfg, request)
+    if err != nil {
+        log.Fatal("Request failed:", err)
+    }
+    
+    if resp.Body.Response.Respuesta.Transaccion {
+        if len(resp.Body.Response.Respuesta.ListaCodigos) == 0 {
+            fmt.Println("No events registered for today")
+        } else {
+            fmt.Printf("Found %d event(s):\n", len(resp.Body.Response.Respuesta.ListaCodigos))
+            for _, evento := range resp.Body.Response.Respuesta.ListaCodigos {
+                fmt.Printf("\nEvent Code: %d\n", evento.CodigoEvento)
+                fmt.Printf("  Reception: %d\n", evento.CodigoRecepcionEventoSignificativo)
+                fmt.Printf("  Description: %s\n", evento.Descripcion)
+                fmt.Printf("  Period: %s to %s\n", evento.FechaInicio, evento.FechaFin)
+            }
+        }
+    } else {
+        for _, msg := range resp.Body.Response.Respuesta.MensajesList {
+            fmt.Printf("Error %d: %s\n", msg.Codigo, msg.Descripcion)
+        }
+    }
+}
+```
+
+---
+
+## Event Reason Codes
+
+Common event reason codes (use Sincronizacion service for complete list):
+
+| Code | Description |
+|------|-------------|
+| 1 | Internet connection failure |
+| 2 | System failure |
+| 3 | Power outage |
+| 4 | Computer equipment failure |
+| 5 | Application software failure |
+| 6 | Operating system failure |
+
+<Tip>
+Use the [Sincronizacion service](/api/sincronizacion/overview) to retrieve the complete, up-to-date list of event reason codes from SIAT.
+</Tip>
+
+## Event Lifecycle
+
+1. **Event Occurs**: An incident affects normal invoicing operations
+2. **Register Event**: Use `RegistroEventosSignificativos` to report the event
+3. **Continue Operations**: Invoices issued during the event period are marked with the event code
+4. **Event Resolved**: The event automatically closes when you specify the end time
+5. **Query Events**: Use `ConsultaEventosSignificativos` to review registered events
+
+## Best Practices
+
+<Warning>
+Always register significant events promptly when they occur. The SIAT system uses this information to validate invoice timing and offline operation periods.
+</Warning>
+
+- Register events as soon as they occur
+- Provide accurate start and end times
+- Include detailed descriptions for audit purposes
+- Save the `codigoRecepcionEventoSignificativo` for your records
+- Query events regularly to ensure all incidents are properly registered
+- Use appropriate event reason codes from the parametric tables
+
+## Common Scenarios
+
+### Internet Outage
+
+```go
+// Register internet outage
+request := &operaciones.RegistroEventoSignificativo{
+    SolicitudEventoSignificativo: operaciones.SolicitudEventoSignificativo{
+        CodigoMotivoEvento:    1,  // Internet failure
+        Descripcion:           "ISP outage affecting all locations",
+        FechaHoraInicioEvento: outageStart,
+        FechaHoraFinEvento:    outageEnd,
+        // ... other required fields
+    },
+}
+```
+
+### System Maintenance
+
+```go
+// Register planned maintenance
+request := &operaciones.RegistroEventoSignificativo{
+    SolicitudEventoSignificativo: operaciones.SolicitudEventoSignificativo{
+        CodigoMotivoEvento:    2,  // System failure
+        Descripcion:           "Scheduled system maintenance and updates",
+        FechaHoraInicioEvento: maintenanceStart,
+        FechaHoraFinEvento:    maintenanceEnd,
+        // ... other required fields
+    },
+}
+```
+
+### Equipment Failure
+
+```go
+// Register equipment failure at specific point of sale
+request := &operaciones.RegistroEventoSignificativo{
+    SolicitudEventoSignificativo: operaciones.SolicitudEventoSignificativo{
+        CodigoMotivoEvento:    4,  // Equipment failure
+        CodigoPuntoVenta:      1,  // Specific POS affected
+        Descripcion:           "POS terminal hardware failure - replaced",
+        FechaHoraInicioEvento: failureStart,
+        FechaHoraFinEvento:    failureEnd,
+        // ... other required fields
+    },
+}
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Operaciones Overview" icon="gears" href="/api/operaciones/overview">
+    Overview of Operaciones service
+  </Card>
+  <Card title="Punto de Venta" icon="shop" href="/api/operaciones/punto-venta">
+    Point of sale operations
+  </Card>
+  <Card title="Sincronizacion Service" icon="arrows-rotate" href="/api/sincronizacion/overview">
+    Get event reason codes
+  </Card>
+  <Card title="Codigos Service" icon="hashtag" href="/api/codigos/overview">
+    Manage CUFD codes
+  </Card>
+</CardGroup>

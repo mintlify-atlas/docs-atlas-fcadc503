@@ -1,0 +1,582 @@
+---
+title: 'Error Handling'
+description: 'Handle errors, validate responses, and implement robust error recovery'
+icon: 'triangle-exclamation'
+---
+
+## Overview
+
+Proper error handling is critical for reliable invoice processing. This guide covers:
+
+- Understanding SIAT response structures
+- Detecting and handling errors
+- Implementing retry strategies
+- Validating business rules
+- Logging and monitoring
+
+## Response Structure
+
+All SIAT service responses follow a consistent structure:
+
+```go
+type Response struct {
+    Body struct {
+        Content struct {
+            // Service-specific response
+            RespuestaCuis struct {
+                Transaccion bool     // true = success
+                Codigo      string   // Response code (CUIS, CUFD, etc.)
+                Mensajes    []string // Error/warning messages
+            }
+        }
+    }
+}
+```
+
+### Successful Response
+
+```go
+resp, err := codigosService.SolicitudCuis(ctx, cfg, cuisReq)
+if err != nil {
+    // Network or SDK error
+    log.Fatalf("Request failed: %v", err)
+}
+
+// Check transaction status
+if resp.Body.Content.RespuestaCuis.Transaccion {
+    // Success - extract data
+    cuisCodigo := resp.Body.Content.RespuestaCuis.Codigo
+    fmt.Printf("CUIS: %s\n", cuisCodigo)
+} else {
+    // Business logic error from SIAT
+    for _, msg := range resp.Body.Content.RespuestaCuis.Mensajes {
+        log.Printf("Error: %s\n", msg)
+    }
+}
+```
+
+### Error Response
+
+```json
+{
+  "transaccion": false,
+  "mensajes": [
+    "CUIS inválido o expirado",
+    "Por favor solicite un nuevo CUIS"
+  ]
+}
+```
+
+## Error Types
+
+<AccordionGroup>
+  <Accordion title="Network Errors">
+    Occur before reaching SIAT servers:
+
+    ```go
+    resp, err := service.SomeMethod(ctx, cfg, req)
+    if err != nil {
+        // Could be:
+        // - Connection timeout
+        // - DNS resolution failure
+        // - TLS handshake error
+        // - Network unreachable
+        
+        if isTimeout(err) {
+            // Implement retry logic
+            return retryWithBackoff()
+        }
+        
+        log.Printf("Network error: %v", err)
+        return err
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Authentication Errors">
+    Invalid or expired API tokens:
+
+    ```go
+    if !resp.Body.Content.Respuesta.Transaccion {
+        for _, msg := range resp.Body.Content.Respuesta.Mensajes {
+            if strings.Contains(msg, "token") || 
+               strings.Contains(msg, "autenticación") {
+                // Token issue - refresh token
+                log.Println("Authentication failed, refreshing token")
+                cfg.Token = refreshToken()
+                return retry()
+            }
+        }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Validation Errors">
+    Invalid request parameters or business rule violations:
+
+    ```go
+    if !resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+        mensajes := resp.Body.Content.RespuestaServicioFacturacion.Mensajes
+        
+        for _, msg := range mensajes {
+            if strings.Contains(msg, "NIT") {
+                log.Println("Invalid NIT:", msg)
+                // Validate and correct NIT
+            } else if strings.Contains(msg, "CUFD") {
+                log.Println("CUFD expired or invalid")
+                // Request new CUFD
+            } else if strings.Contains(msg, "CUF duplicado") {
+                log.Println("Duplicate CUF detected")
+                // Invoice already submitted
+            }
+        }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Service Errors">
+    SIAT service temporarily unavailable:
+
+    ```go
+    if err != nil || !resp.Body.Content.Respuesta.Transaccion {
+        // Check for service status messages
+        if containsServiceError(resp) {
+            log.Println("SIAT service temporarily unavailable")
+            // Queue for retry or offline processing
+            return queueForLater(invoice)
+        }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling Patterns
+
+### Basic Error Check
+
+```go
+func handleResponse(resp *Response, err error) error {
+    // Check network/SDK error
+    if err != nil {
+        return fmt.Errorf("request failed: %w", err)
+    }
+
+    // Check business transaction status
+    if !resp.Body.Content.Respuesta.Transaccion {
+        return fmt.Errorf("transaction failed: %v", 
+            resp.Body.Content.Respuesta.Mensajes)
+    }
+
+    return nil
+}
+```
+
+### Retry with Exponential Backoff
+
+```go
+func retryWithBackoff(fn func() error, maxRetries int) error {
+    backoff := time.Second
+    
+    for i := 0; i < maxRetries; i++ {
+        err := fn()
+        if err == nil {
+            return nil
+        }
+
+        // Don't retry on validation errors
+        if isValidationError(err) {
+            return err
+        }
+
+        log.Printf("Attempt %d failed: %v. Retrying in %v...", 
+            i+1, err, backoff)
+        
+        time.Sleep(backoff)
+        backoff *= 2  // Exponential backoff
+        
+        if backoff > time.Minute {
+            backoff = time.Minute  // Cap at 1 minute
+        }
+    }
+
+    return fmt.Errorf("failed after %d retries", maxRetries)
+}
+```
+
+### Contextual Error Wrapping
+
+```go
+func submitInvoice(invoice Invoice) error {
+    // Validate before submission
+    if err := validateInvoice(invoice); err != nil {
+        return fmt.Errorf("validation failed for invoice %s: %w", 
+            invoice.ID, err)
+    }
+
+    // Submit with retry
+    err := retryWithBackoff(func() error {
+        resp, err := cvService.RecepcionFactura(ctx, cfg, invoiceReq)
+        if err != nil {
+            return err
+        }
+        
+        if !resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+            return fmt.Errorf("submission rejected: %v", 
+                resp.Body.Content.RespuestaServicioFacturacion.Mensajes)
+        }
+        
+        return nil
+    }, 3)
+
+    if err != nil {
+        return fmt.Errorf("failed to submit invoice %s: %w", 
+            invoice.ID, err)
+    }
+
+    return nil
+}
+```
+
+## Validation Strategies
+
+### Pre-Submission Validation
+
+```go
+type InvoiceValidator struct {
+    db *Database
+}
+
+func (v *InvoiceValidator) Validate(inv *Invoice) error {
+    var errs []error
+
+    // Validate NIT
+    if !v.isValidNIT(inv.NitEmisor) {
+        errs = append(errs, fmt.Errorf("invalid NIT: %d", inv.NitEmisor))
+    }
+
+    // Validate CUFD
+    if !v.isCUFDValid(inv.CUFD) {
+        errs = append(errs, errors.New("CUFD expired or invalid"))
+    }
+
+    // Validate amounts
+    if !v.validateAmounts(inv) {
+        errs = append(errs, errors.New("amount calculation mismatch"))
+    }
+
+    // Validate product codes
+    for _, item := range inv.Items {
+        if !v.isValidProductCode(item.CodigoProductoSin) {
+            errs = append(errs, 
+                fmt.Errorf("invalid SIN code: %s", item.CodigoProductoSin))
+        }
+    }
+
+    if len(errs) > 0 {
+        return fmt.Errorf("validation errors: %v", errs)
+    }
+
+    return nil
+}
+
+func (v *InvoiceValidator) validateAmounts(inv *Invoice) bool {
+    calculated := 0.0
+    for _, item := range inv.Items {
+        calculated += item.SubTotal
+    }
+    
+    // Allow small floating-point differences
+    diff := math.Abs(calculated - inv.MontoTotal)
+    return diff < 0.01
+}
+```
+
+### Runtime Validation
+
+```go
+func validateResponse(resp *Response) error {
+    if resp == nil {
+        return errors.New("nil response")
+    }
+
+    // Validate structure
+    if resp.Body.Content.Respuesta.Transaccion {
+        // Check required fields are present
+        if resp.Body.Content.RespuestaServicioFacturacion.CodigoRecepcion == "" {
+            return errors.New("missing reception code in successful response")
+        }
+    }
+
+    return nil
+}
+```
+
+## Common Error Scenarios
+
+### Expired CUFD
+
+```go
+func handleExpiredCUFD(err error, resp *Response) error {
+    for _, msg := range resp.Body.Content.Respuesta.Mensajes {
+        if strings.Contains(strings.ToLower(msg), "cufd") {
+            log.Println("CUFD expired, requesting new one")
+            
+            // Request new CUFD
+            cufdResp, err := requestNewCUFD()
+            if err != nil {
+                return fmt.Errorf("failed to get new CUFD: %w", err)
+            }
+            
+            // Update configuration
+            updateCUFD(cufdResp.Body.Content.RespuestaCufd.Codigo)
+            
+            // Retry original operation
+            return retry()
+        }
+    }
+    
+    return err
+}
+```
+
+### Invalid CUIS
+
+```go
+func handleInvalidCUIS(err error, resp *Response) error {
+    for _, msg := range resp.Body.Content.Respuesta.Mensajes {
+        if strings.Contains(strings.ToLower(msg), "cuis") {
+            log.Println("CUIS invalid or expired, requesting new one")
+            
+            // Request new CUIS
+            cuisResp, err := requestNewCUIS()
+            if err != nil {
+                return fmt.Errorf("failed to get new CUIS: %w", err)
+            }
+            
+            // Update stored CUIS
+            updateCUIS(cuisResp.Body.Content.RespuestaCuis.Codigo)
+            
+            // Also need new CUFD with new CUIS
+            cufdResp, err := requestNewCUFD()
+            if err != nil {
+                return fmt.Errorf("failed to get new CUFD: %w", err)
+            }
+            
+            updateCUFD(cufdResp.Body.Content.RespuestaCufd.Codigo)
+            
+            return retry()
+        }
+    }
+    
+    return err
+}
+```
+
+### Duplicate Invoice
+
+```go
+func handleDuplicateInvoice(resp *Response, invoice *Invoice) error {
+    for _, msg := range resp.Body.Content.RespuestaServicioFacturacion.Mensajes {
+        if strings.Contains(msg, "duplicado") || 
+           strings.Contains(msg, "duplicate") {
+            log.Printf("Invoice %s already submitted\n", invoice.CUF)
+            
+            // Mark as submitted in database
+            markInvoiceSubmitted(invoice.ID)
+            
+            // Not an error - already processed
+            return nil
+        }
+    }
+    
+    return fmt.Errorf("submission failed: %v", 
+        resp.Body.Content.RespuestaServicioFacturacion.Mensajes)
+}
+```
+
+## Logging and Monitoring
+
+### Structured Logging
+
+```go
+import "log/slog"
+
+func submitInvoiceWithLogging(invoice *Invoice) error {
+    logger := slog.With(
+        "invoice_id", invoice.ID,
+        "cuf", invoice.CUF,
+        "amount", invoice.MontoTotal,
+    )
+
+    logger.Info("submitting invoice")
+
+    resp, err := cvService.RecepcionFactura(ctx, cfg, invoiceReq)
+    if err != nil {
+        logger.Error("submission failed", "error", err)
+        return err
+    }
+
+    if !resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+        logger.Warn("transaction rejected", 
+            "messages", resp.Body.Content.RespuestaServicioFacturacion.Mensajes)
+        return errors.New("transaction rejected")
+    }
+
+    logger.Info("invoice submitted successfully",
+        "reception_code", resp.Body.Content.RespuestaServicioFacturacion.CodigoRecepcion)
+
+    return nil
+}
+```
+
+### Metrics Collection
+
+```go
+type Metrics struct {
+    TotalSubmissions   int64
+    SuccessfulSubmissions int64
+    FailedSubmissions  int64
+    RetryAttempts      int64
+    AverageResponseTime time.Duration
+}
+
+func (m *Metrics) RecordSubmission(success bool, duration time.Duration) {
+    m.TotalSubmissions++
+    if success {
+        m.SuccessfulSubmissions++
+    } else {
+        m.FailedSubmissions++
+    }
+    
+    // Update average response time
+    m.AverageResponseTime = (m.AverageResponseTime + duration) / 2
+}
+```
+
+## Error Recovery Strategies
+
+### Offline Queue
+
+```go
+type OfflineQueue struct {
+    db *Database
+}
+
+func (q *OfflineQueue) QueueInvoice(invoice *Invoice) error {
+    return q.db.SavePendingInvoice(invoice)
+}
+
+func (q *OfflineQueue) ProcessQueue() error {
+    invoices, err := q.db.GetPendingInvoices()
+    if err != nil {
+        return err
+    }
+
+    for _, inv := range invoices {
+        err := submitInvoice(&inv)
+        if err != nil {
+            log.Printf("Failed to submit queued invoice %s: %v", 
+                inv.ID, err)
+            continue
+        }
+        
+        q.db.MarkInvoiceSubmitted(inv.ID)
+    }
+
+    return nil
+}
+```
+
+### Circuit Breaker
+
+```go
+type CircuitBreaker struct {
+    maxFailures int
+    timeout     time.Duration
+    failures    int
+    lastFailure time.Time
+    state       string // "closed", "open", "half-open"
+}
+
+func (cb *CircuitBreaker) Call(fn func() error) error {
+    if cb.state == "open" {
+        if time.Since(cb.lastFailure) > cb.timeout {
+            cb.state = "half-open"
+        } else {
+            return errors.New("circuit breaker open")
+        }
+    }
+
+    err := fn()
+    if err != nil {
+        cb.failures++
+        cb.lastFailure = time.Now()
+        
+        if cb.failures >= cb.maxFailures {
+            cb.state = "open"
+            log.Println("Circuit breaker opened")
+        }
+        
+        return err
+    }
+
+    // Success - reset
+    cb.failures = 0
+    cb.state = "closed"
+    return nil
+}
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Always Check Transaction Status">
+    ```go
+    // Good
+    if resp != nil && resp.Body.Content.Respuesta.Transaccion {
+        // Process success
+    } else {
+        // Handle error
+    }
+
+    // Bad
+    if err == nil {
+        // Assumes success - wrong!
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Implement Retry Logic Carefully">
+    - Only retry transient errors (network, timeouts)
+    - Don't retry validation errors
+    - Use exponential backoff
+    - Set maximum retry limits
+    - Log all retry attempts
+  </Accordion>
+
+  <Accordion title="Validate Before Submission">
+    - Check NITs against catalog
+    - Verify CUFD expiration
+    - Validate product codes
+    - Calculate totals accurately
+    - Ensure invoice number uniqueness
+  </Accordion>
+
+  <Accordion title="Handle Idempotency">
+    - Use CUF to detect duplicates
+    - Store submission results
+    - Don't resubmit successfully processed invoices
+    - Query status before retry if uncertain
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CUIS/CUFD Management" icon="key" href="/guides/codigos">
+    Handle code expiration and renewal
+  </Card>
+  <Card title="API Reference" icon="code" href="/api/compra-venta">
+    Complete API documentation
+  </Card>
+</CardGroup>

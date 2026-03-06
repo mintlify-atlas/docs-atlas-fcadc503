@@ -1,0 +1,166 @@
+---
+title: 'CompraVenta Service Overview'
+description: 'Overview of the CompraVenta service for invoice management in the SIAT system'
+icon: 'receipt'
+---
+
+## Introduction
+
+The **CompraVenta** service is the core module for managing electronic invoices in the SIAT system. It provides functionality for:
+
+- Building and submitting invoices (facturas)
+- Canceling previously issued invoices
+- Generating CUF (Código Único de Factura)
+- Signing, compressing, and hashing invoice XML
+
+## Service Methods
+
+The CompraVenta service exposes two primary methods:
+
+<CardGroup cols={2}>
+  <Card title="RecepcionFactura" icon="file-invoice" href="/api/compra-venta/recepcion-factura">
+    Submit a signed and compressed invoice to SIAT for processing
+  </Card>
+  <Card title="AnulacionFactura" icon="ban" href="/api/compra-venta/anulacion-factura">
+    Cancel a previously accepted invoice
+  </Card>
+</CardGroup>
+
+## Builder Pattern
+
+The SDK uses a fluent builder pattern for constructing invoices and requests. This ensures type safety and prevents direct manipulation of internal structures.
+
+<Card title="Invoice Builder" icon="hammer" href="/api/compra-venta/factura-builder">
+  Learn how to build invoices using Factura, Cabecera, and Detalle builders
+</Card>
+
+## Accessing the Service
+
+The CompraVenta service is available through the main SIAT client:
+
+```go
+package main
+
+import (
+    "github.com/ron86i/go-siat"
+    "log"
+)
+
+func main() {
+    // Initialize SIAT client
+    client, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    // Access CompraVenta service
+    cvService := client.CompraVenta
+    
+    // Use the service methods
+    // cvService.RecepcionFactura(...)
+    // cvService.AnulacionFactura(...)
+}
+```
+
+## Utility Functions
+
+The `models.CompraVenta` namespace provides utility functions for invoice processing:
+
+### GenerarCUF
+
+Generates the unique invoice code (CUF):
+
+```go
+cuf, err := models.CompraVenta.GenerarCUF(
+    nit,              // int64: NIT del emisor
+    fechaHora,        // time.Time: fecha y hora de emisión
+    sucursal,         // int: código de sucursal
+    modalidad,        // int: código de modalidad
+    tipoEmision,      // int: tipo de emisión
+    tipoFactura,      // int: tipo de factura
+    tipoDocumentoSector, // int: tipo de documento sector
+    numeroFactura,    // int: número de factura
+    puntoVenta,       // int: código punto de venta
+    codigoControl,    // string: código de control
+)
+```
+
+### SignXML
+
+Signs an invoice XML document with a digital certificate:
+
+```go
+signedXML, err := models.CompraVenta.SignXML(
+    xmlBytes,    // []byte: XML serializado
+    "key.pem",   // string: ruta al archivo de clave privada
+    "cert.crt",  // string: ruta al archivo de certificado
+)
+```
+
+## Complete Workflow
+
+A typical invoice submission follows this workflow:
+
+1. **Build the Invoice** using `NewFactura()`, `NewCabecera()`, and `NewDetalle()` builders
+2. **Marshal to XML** using `xml.Marshal()`
+3. **Sign the XML** using `models.CompraVenta.SignXML()`
+4. **Compress with Gzip** to reduce payload size
+5. **Calculate SHA256 hash** of the compressed bytes
+6. **Encode to Base64** for transmission
+7. **Build RecepcionFacturaRequest** with the encoded file and hash
+8. **Submit to SIAT** using `cvService.RecepcionFactura()`
+
+See the [complete example](/api/compra-venta/recepcion-factura#complete-example) for implementation details.
+
+## Response Structure
+
+All CompraVenta service methods return a SOAP envelope response:
+
+```go
+type EnvelopeResponse[T] struct {
+    Body struct {
+        Content T
+    }
+}
+```
+
+The response content includes:
+
+<ParamField path="RespuestaServicioFacturacion.Transaccion" type="boolean">
+  Indicates if the transaction was successful
+</ParamField>
+
+<ParamField path="RespuestaServicioFacturacion.CodigoRecepcion" type="string">
+  Reception code assigned by SIAT (on success)
+</ParamField>
+
+<ParamField path="RespuestaServicioFacturacion.CodigoEstado" type="int">
+  Status code of the operation
+</ParamField>
+
+<ParamField path="RespuestaServicioFacturacion.CodigoDescripcion" type="string">
+  Human-readable description of the result
+</ParamField>
+
+<ParamField path="RespuestaServicioFacturacion.MensajesList" type="[]MensajeServicio">
+  List of messages or errors from the service
+</ParamField>
+
+## Error Handling
+
+Always check both the error return value and the response transaction status:
+
+```go
+resp, err := cvService.RecepcionFactura(ctx, cfg, request)
+if err != nil {
+    log.Fatalf("HTTP/Network error: %v", err)
+}
+
+if !resp.Body.Content.RespuestaServicioFacturacion.Transaccion {
+    log.Printf("SIAT rejected invoice: %s",
+        resp.Body.Content.RespuestaServicioFacturacion.CodigoDescripcion)
+    for _, msg := range resp.Body.Content.RespuestaServicioFacturacion.MensajesList {
+        log.Printf("  [%d] %s", msg.Codigo, msg.Descripcion)
+    }
+}
+```

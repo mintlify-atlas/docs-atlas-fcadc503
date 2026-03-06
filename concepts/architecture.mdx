@@ -1,0 +1,383 @@
+---
+title: 'SDK Architecture'
+description: 'Understand the architectural design and structure of the go-siat SDK'
+icon: 'sitemap'
+---
+
+## Overview
+
+The **go-siat** SDK is built with a clean, modular architecture that follows Go best practices and separates concerns through well-defined layers. The SDK provides a unified entry point while maintaining flexibility and extensibility.
+
+## Architectural Layers
+
+The SDK follows a layered architecture pattern:
+
+```
+┌─────────────────────────────────────┐
+│     User Application Layer          │
+│  (Your Go application code)         │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│     SDK Public API (siat.go)        │
+│  • siat.New()                       │
+│  • Unified service access           │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│    Service Layer                    │
+│  • Codigos                          │
+│  • Sincronizacion                   │
+│  • Operaciones                      │
+│  • CompraVenta                      │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│    Transport Layer                  │
+│  • SOAP envelope building           │
+│  • HTTP client management           │
+│  • XML serialization                │
+└──────────────┬──────────────────────┘
+               │
+┌──────────────▼──────────────────────┐
+│    SIAT Web Services                │
+│  (Bolivian Tax Authority APIs)      │
+└─────────────────────────────────────┘
+```
+
+## Core Components
+
+### 1. Unified SDK Entry Point
+
+The SDK provides a single entry point through the `siat.New()` function defined in `siat.go:24`:
+
+```go
+package main
+
+import (
+    "github.com/ron86i/go-siat"
+    "net/http"
+    "time"
+)
+
+func main() {
+    // Initialize SDK with base URL and optional HTTP client
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        panic(err)
+    }
+    
+    // Access all services through the unified interface
+    _ = s.Codigos
+    _ = s.Sincronizacion
+    _ = s.Operaciones
+    _ = s.CompraVenta
+}
+```
+
+<Info>
+If you pass `nil` as the HTTP client, the SDK automatically creates a default client with a 15-second timeout for safe and predictable behavior.
+</Info>
+
+### 2. Service Structure
+
+The SDK organizes all SIAT operations into four main service groups, as defined in `siat.go:14`:
+
+#### Codigos Service
+Handles code generation and validation:
+- CUIS (Código Único de Inicio de Sistemas)
+- CUFD (Código Único de Facturación Diaria)
+- NIT validation
+- Certificate revocation notifications
+
+#### Sincronizacion Service
+Manages catalog synchronization:
+- Activities and parametric data
+- Product and service lists
+- Document sector configurations
+- Tax-related reference data
+
+#### Operaciones Service
+Manages point-of-sale operations:
+- Point of sale registration and closure
+- Significant events management
+- System operations lifecycle
+- Communication verification
+
+#### CompraVenta Service
+Handles invoice transactions:
+- Invoice reception and validation
+- Invoice cancellation
+- Digital signature processing
+- CUF (Código Único de Factura) generation
+
+### 3. Service Implementation Pattern
+
+Each service follows a consistent implementation pattern. Here's an example from `siat_codigos_service.go:20`:
+
+```go
+type SiatCodigosService struct {
+    url        string        // Full endpoint URL
+    HttpClient *http.Client  // Injected HTTP client
+}
+
+// Constructor with validation and defaults
+func NewSiatCodigosService(baseUrl string, httpClient *http.Client) (*SiatCodigosService, error) {
+    baseUrl = strings.TrimSpace(baseUrl)
+    if baseUrl == "" {
+        return nil, fmt.Errorf("la URL base del SIAT no puede estar vacía")
+    }
+    
+    // Provide safe defaults if no client is injected
+    if httpClient == nil {
+        httpClient = &http.Client{
+            Timeout: 15 * time.Second,
+        }
+    }
+    
+    return &SiatCodigosService{
+        url:        fullURL(baseUrl, SiatCodigos),
+        HttpClient: httpClient,
+    }, nil
+}
+```
+
+<Note>
+All services are initialized during `siat.New()` and share the same base URL and HTTP client configuration for consistency.
+</Note>
+
+### 4. Request Building with Builder Pattern
+
+The SDK implements the **Builder Pattern** for constructing requests, providing a fluent and type-safe API:
+
+```go
+// Example from pkg/models/codigos.go
+req := models.Codigos.NewCuisRequest().
+    WithNit(123456789).
+    WithCodigoAmbiente(2).
+    WithCodigoSistema("ABC123XYZ").
+    WithCodigoSucursal(0).
+    WithCodigoPuntoVenta(0).
+    Build()
+```
+
+**Benefits of the Builder Pattern:**
+- Method chaining for readable code
+- Type safety at compile time
+- Optional parameter handling
+- Clear separation between construction and usage
+- Prevents invalid state objects
+
+### 5. Transport Layer
+
+The transport layer (defined in `index_service.go`) handles the low-level details of communicating with SIAT:
+
+#### SOAP Envelope Construction
+
+```go
+// From index_service.go:31
+func buildRequest(req any) ([]byte, error) {
+    requestBody := soap.Envelope[any]{
+        XmlnsSoapenv: "http://schemas.xmlsoap.org/soap/envelope/",
+        XmlnsNs:      "https://siat.impuestos.gob.bo/",
+        Body: soap.EnvelopeBody[any]{
+            Content: req,
+        },
+    }
+    
+    xmlBody, err := xml.MarshalIndent(requestBody, "", "  ")
+    if err != nil {
+        return nil, fmt.Errorf("error al serializar body SOAP: %w", err)
+    }
+    return []byte(xml.Header + string(xmlBody)), nil
+}
+```
+
+#### Response Parsing
+
+```go
+// From index_service.go:48
+func parseSoapResponse[T any](resp *http.Response) (*soap.EnvelopeResponse[T], error) {
+    defer resp.Body.Close()
+    
+    body, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return nil, fmt.Errorf("error al leer el cuerpo de la respuesta: %w", err)
+    }
+    
+    var result soap.EnvelopeResponse[T]
+    errUnmarshal := xml.Unmarshal(body, &result)
+    
+    // Handle SOAP Fault responses
+    if errUnmarshal == nil && result.Body.Fault != nil {
+        return nil, fmt.Errorf("SOAP Fault [%s]: %s", 
+            result.Body.Fault.FaultCode, 
+            result.Body.Fault.FaultString)
+    }
+    
+    return &result, nil
+}
+```
+
+<Warning>
+The SDK automatically handles SOAP Faults and converts them into Go errors for consistent error handling.
+</Warning>
+
+## Service Endpoints
+
+The SDK defines four main service endpoints (from `index_service.go:14`):
+
+| Service | Endpoint Path | Purpose |
+|---------|--------------|----------|
+| `SiatCodigos` | `/FacturacionCodigos` | Code generation and validation |
+| `SiatOperaciones` | `/FacturacionOperaciones` | Point of sale operations |
+| `SiatSincronizacion` | `/FacturacionSincronizacion` | Catalog synchronization |
+| `SiatCompraVenta` | `/ServicioFacturacionCompraVenta` | Invoice transactions |
+
+## HTTP Communication Flow
+
+Every service method follows this communication pattern:
+
+1. **Request Construction**: Build SOAP envelope from request object
+2. **HTTP Setup**: Create POST request with proper headers
+3. **Authentication**: Add API token via `apiKey` header
+4. **Execution**: Send request using configured HTTP client
+5. **Response Parsing**: Parse SOAP response and handle errors
+6. **Type Safety**: Return strongly-typed response objects
+
+Example from `siat_operaciones_service.go:26`:
+
+```go
+func (s *SiatOperacionesService) ConsultaPuntoVenta(
+    ctx context.Context, 
+    config config.Config, 
+    opaqueReq any,
+) (*soap.EnvelopeResponse[operaciones.ConsultaPuntoVentaResponse], error) {
+    // 1. Extract and build request
+    req := models.GetInternalRequest[operaciones.ConsultaPuntoVenta](opaqueReq)
+    xmlBody, err := buildRequest(req)
+    if err != nil {
+        return nil, err
+    }
+    
+    // 2. Create HTTP request with context
+    httpReq, err := http.NewRequestWithContext(ctx, "POST", s.url, bytes.NewReader(xmlBody))
+    if err != nil {
+        return nil, fmt.Errorf("error al crear petición HTTP: %w", err)
+    }
+    
+    // 3. Set headers with authentication
+    httpReq.Header.Set("Content-Type", "application/xml")
+    httpReq.Header.Set("apiKey", fmt.Sprintf("TokenApi %s", config.Token))
+    
+    // 4. Execute request
+    resp, err := s.HttpClient.Do(httpReq)
+    if err != nil {
+        return nil, fmt.Errorf("error al hacer request HTTP: %w", err)
+    }
+    
+    // 5. Parse and return typed response
+    return parseSoapResponse[operaciones.ConsultaPuntoVentaResponse](resp)
+}
+```
+
+## Dependency Injection
+
+The SDK supports dependency injection for flexibility:
+
+### Custom HTTP Client
+
+```go
+// Inject custom HTTP client with specific configuration
+customClient := &http.Client{
+    Timeout: 30 * time.Second,
+    Transport: &http.Transport{
+        MaxIdleConns:        100,
+        MaxIdleConnsPerHost: 10,
+        IdleConnTimeout:     90 * time.Second,
+    },
+}
+
+s, err := siat.New(baseURL, customClient)
+```
+
+### Context Support
+
+All service methods accept a `context.Context` for cancellation and timeout control:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+resp, err := s.Codigos.SolicitudCuis(ctx, cfg, req)
+```
+
+## Error Handling Strategy
+
+The SDK implements comprehensive error handling:
+
+1. **Validation Errors**: Input validation at construction time
+2. **Network Errors**: HTTP-level errors with context
+3. **SOAP Faults**: Business logic errors from SIAT
+4. **Parsing Errors**: XML deserialization issues
+
+```go
+resp, err := s.Codigos.SolicitudCuis(ctx, cfg, req)
+if err != nil {
+    // Could be:
+    // - Network error: "error al hacer request HTTP: ..."
+    // - SOAP Fault: "SOAP Fault [faultCode]: faultString"
+    // - Parse error: "error al parsear respuesta SOAP: ..."
+    log.Printf("Error: %v", err)
+}
+```
+
+## Thread Safety
+
+The SDK is designed to be thread-safe:
+
+- Service instances are immutable after creation
+- HTTP clients can be safely shared across goroutines
+- No shared mutable state between requests
+
+```go
+// Safe to use from multiple goroutines
+var wg sync.WaitGroup
+for i := 0; i < 10; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        resp, err := s.Codigos.VerificarComunicacion(ctx, cfg)
+        // Handle response...
+    }()
+}
+wg.Wait()
+```
+
+## Best Practices
+
+<CardGroup cols={2}>
+  <Card title="Use Context" icon="clock">
+    Always pass a context with appropriate timeout for production use
+  </Card>
+  <Card title="Reuse SDK Instance" icon="recycle">
+    Create the SDK instance once and reuse it across your application
+  </Card>
+  <Card title="Handle Errors" icon="triangle-exclamation">
+    Check and handle errors at every service call
+  </Card>
+  <Card title="Builder Pattern" icon="hammer">
+    Use builders for type-safe request construction
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/concepts/authentication">
+    Learn how authentication works with SIAT tokens
+  </Card>
+  <Card title="Environments" icon="server" href="/concepts/environments">
+    Configure development and production environments
+  </Card>
+</CardGroup>

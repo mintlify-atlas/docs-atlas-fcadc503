@@ -1,0 +1,261 @@
+---
+title: 'Activities Synchronization'
+description: 'Synchronize economic activities and related catalogs'
+---
+
+The Activities synchronization methods allow you to retrieve economic activities, activity-sector relationships, invoice legends, and service messages from SIAT.
+
+## SincronizarActividades
+
+Synchronize the catalog of economic activities for the taxpayer.
+
+### Request Builder
+
+```go
+request := models.Sincronizacion.NewSincronizarActividadesRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+### Parameters
+
+See [common parameters](/api/sincronizacion/overview#common-request-parameters) for all synchronization requests.
+
+### Response
+
+```go
+type SincronizarActividadesResponse struct {
+    RespuestaListaActividades RespuestaListaActividades
+}
+
+type RespuestaListaActividades struct {
+    Transaccion      bool
+    ListaActividades []ListaActividades
+}
+
+type ListaActividades struct {
+    CodigoCaeb    string // CAEB code
+    Descripcion   string // Activity description
+    TipoActividad string // Activity type
+}
+```
+
+### Example
+
+```go
+response, err := client.Sincronizacion.SincronizarActividades(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, actividad := range response.RespuestaListaActividades.ListaActividades {
+    fmt.Printf("Code: %s, Description: %s, Type: %s\n",
+        actividad.CodigoCaeb,
+        actividad.Descripcion,
+        actividad.TipoActividad)
+}
+```
+
+---
+
+## SincronizarListaActividadesDocumentoSector
+
+Synchronize the relationship between economic activities and sector document types.
+
+### Request Builder
+
+```go
+request := models.Sincronizacion.NewSincronizarListaActividadesDocumentoSectorRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+### Parameters
+
+See [common parameters](/api/sincronizacion/overview#common-request-parameters) for all synchronization requests.
+
+### Response
+
+```go
+type SincronizarListaActividadesDocumentoSectorResponse struct {
+    RespuestaListaActividadesDocumentoSector RespuestaListaActividadesDocumentoSector
+}
+
+type RespuestaListaActividadesDocumentoSector struct {
+    Transaccion                     bool
+    ListaActividadesDocumentoSector []ListaActividadesDocumentoSector
+}
+
+type ListaActividadesDocumentoSector struct {
+    CodigoActividad       string // Activity code
+    CodigoDocumentoSector uint64 // Sector document code
+    TipoDocumentoSector   string // Sector document type description
+}
+```
+
+### Example
+
+```go
+response, err := client.Sincronizacion.SincronizarListaActividadesDocumentoSector(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, rel := range response.RespuestaListaActividadesDocumentoSector.ListaActividadesDocumentoSector {
+    fmt.Printf("Activity: %s, Document Code: %d, Type: %s\n",
+        rel.CodigoActividad,
+        rel.CodigoDocumentoSector,
+        rel.TipoDocumentoSector)
+}
+```
+
+---
+
+## SincronizarListaLeyendasFactura
+
+Synchronize the catalog of legends that must be included on invoices based on activities.
+
+### Request Builder
+
+```go
+request := models.Sincronizacion.NewSincronizarListaLeyendasFacturaRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+### Parameters
+
+See [common parameters](/api/sincronizacion/overview#common-request-parameters) for all synchronization requests.
+
+### Response
+
+```go
+type SincronizarListaLeyendasFacturaResponse struct {
+    RespuestaListaParametricasLeyendas RespuestaListaParametricasLeyendas
+}
+
+type RespuestaListaParametricasLeyendas struct {
+    Transaccion   bool
+    ListaLeyendas *[]ListaLeyendas
+}
+
+type ListaLeyendas struct {
+    CodigoActividad    string // Activity code
+    DescripcionLeyenda string // Legend text to include on invoice
+}
+```
+
+### Example
+
+```go
+response, err := client.Sincronizacion.SincronizarListaLeyendasFactura(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+if response.RespuestaListaParametricasLeyendas.ListaLeyendas != nil {
+    for _, leyenda := range *response.RespuestaListaParametricasLeyendas.ListaLeyendas {
+        fmt.Printf("Activity: %s, Legend: %s\n",
+            leyenda.CodigoActividad,
+            leyenda.DescripcionLeyenda)
+    }
+}
+```
+
+---
+
+## SincronizarListaMensajesServicios
+
+Synchronize error and informational messages from the SIAT service.
+
+### Request Builder
+
+```go
+request := models.Sincronizacion.NewSincronizarListaMensajesServiciosRequest().
+    WithCodigoAmbiente(2).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123").
+    WithCodigoSucursal(0).
+    WithCuis("ABCD1234").
+    WithNit(1234567890).
+    Build()
+```
+
+### Parameters
+
+See [common parameters](/api/sincronizacion/overview#common-request-parameters) for all synchronization requests.
+
+### Response
+
+```go
+type SincronizarListaMensajesServiciosResponse struct {
+    RespuestaListaParametricas RespuestaListaParametricas
+}
+
+type RespuestaListaParametricas struct {
+    Transaccion  bool
+    ListaCodigos []ListaCodigos
+}
+
+type ListaCodigos struct {
+    CodigoClasificador uint64 // Message code
+    Descripcion        string // Message description
+}
+```
+
+### Example
+
+```go
+response, err := client.Sincronizacion.SincronizarListaMensajesServicios(
+    context.Background(),
+    cfg,
+    request,
+)
+if err != nil {
+    log.Fatal(err)
+}
+
+for _, mensaje := range response.RespuestaListaParametricas.ListaCodigos {
+    fmt.Printf("Code: %d, Message: %s\n",
+        mensaje.CodigoClasificador,
+        mensaje.Descripcion)
+}
+```
+
+## Related Methods
+
+<CardGroup cols={2}>
+  <Card title="Parametric Catalogs" icon="list" href="/api/sincronizacion/parametricas">
+    Synchronize standard SIAT parametric catalogs
+  </Card>
+  <Card title="Products & Services" icon="box" href="/api/sincronizacion/productos-servicios">
+    Synchronize product and service catalogs
+  </Card>
+</CardGroup>

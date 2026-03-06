@@ -1,0 +1,388 @@
+---
+title: 'Point of Sale Operations'
+description: 'Register, query, and manage points of sale and significant events'
+icon: 'cash-register'
+---
+
+## Overview
+
+The **Operaciones** service manages point of sale (POS) operations and system events:
+
+- Register new points of sale
+- Query existing points of sale
+- Close points of sale
+- Register and query significant events
+- Close system operations
+
+<Info>
+You must register at least one point of sale before you can submit invoices.
+</Info>
+
+## Initialize the Service
+
+```go
+import (
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+if err != nil {
+    log.Fatalf("Error: %v", err)
+}
+
+operService := s.Operaciones
+
+cfg := config.Config{Token: "YOUR_API_TOKEN"}
+ctx := context.Background()
+```
+
+## Query Points of Sale
+
+<Steps>
+  <Step title="Build Query Request">
+    ```go
+    consultaReq := models.Operaciones.NewConsultaPuntoVentaRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoSistema("ABC123DEF").
+        WithCuis("C2FC682B").
+        WithCodigoSucursal(0).
+        Build()
+    ```
+  </Step>
+
+  <Step title="Execute Query">
+    ```go
+    resp, err := operService.ConsultaPuntoVenta(ctx, cfg, consultaReq)
+    if err != nil {
+        log.Fatalf("Error querying points of sale: %v", err)
+    }
+    ```
+  </Step>
+
+  <Step title="Process Results">
+    ```go
+    if resp != nil && resp.Body.Content.Respuesta.Transaccion {
+        fmt.Println("Points of sale:")
+        
+        for _, pv := range resp.Body.Content.Respuesta.ListaPuntosVentas {
+            fmt.Printf("[%d] %s (Type: %d)\n", 
+                pv.CodigoPuntoVenta, 
+                pv.NombrePuntoVenta, 
+                pv.CodigoTipoPuntoVenta)
+        }
+    } else {
+        fmt.Println("Query failed:", resp.Body.Content.Respuesta.Mensajes)
+    }
+    ```
+  </Step>
+</Steps>
+
+## Register a Point of Sale
+
+Create a new point of sale for your branch:
+
+<Steps>
+  <Step title="Build Registration Request">
+    ```go
+    registroReq := models.Operaciones.NewRegistroPuntoVentaRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoSistema("ABC123DEF").
+        WithCuis("C2FC682B").
+        WithCodigoSucursal(0).
+        WithCodigoTipoPuntoVenta(2).        // 1=Fixed, 2=Cashier, 3=Mobile, etc.
+        WithNombrePuntoVenta("Caja 01").    // Descriptive name
+        WithDescripcion("Main cashier").    // Additional description
+        Build()
+    ```
+
+    <Note>
+    Consult the `SincronizarParametricaTipoPuntoVenta` catalog for valid point of sale types.
+    </Note>
+  </Step>
+
+  <Step title="Submit Registration">
+    ```go
+    regResp, err := operService.RegistroPuntoVenta(ctx, cfg, registroReq)
+    if err != nil {
+        log.Fatalf("Error registering point of sale: %v", err)
+    }
+
+    if regResp.Body.Content.Respuesta.Transaccion {
+        codigoPOS := regResp.Body.Content.Respuesta.CodigoPuntoVenta
+        fmt.Printf("Point of sale registered: %d\n", codigoPOS)
+        
+        // Store this code for future invoice submissions
+    } else {
+        fmt.Println("Registration failed:", 
+            regResp.Body.Content.Respuesta.Mensajes)
+    }
+    ```
+  </Step>
+</Steps>
+
+## Close a Point of Sale
+
+Permanently close a point of sale:
+
+```go
+cierreReq := models.Operaciones.NewCierrePuntoVentaRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoPuntoVenta(123).  // POS code to close
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCuis("C2FC682B").
+    WithNit(123456789).
+    Build()
+
+cierreResp, err := operService.CierrePuntoVenta(ctx, cfg, cierreReq)
+if err != nil {
+    log.Fatalf("Error closing point of sale: %v", err)
+}
+
+if cierreResp.Body.Content.Respuesta.Transaccion {
+    fmt.Println("Point of sale closed successfully")
+}
+```
+
+<Warning>
+Closing a point of sale is permanent. You cannot reopen it - you must register a new one.
+</Warning>
+
+## Register Commission-Based Point of Sale
+
+For commission-based sales (e.g., agents, distributors):
+
+```go
+import "time"
+
+comReq := models.Operaciones.NewRegistroPuntoVentaComisionistaRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCuis("C2FC682B").
+    WithNit(123456789).
+    WithNitComisionista(987654321).         // Commissioner's NIT
+    WithNombrePuntoVenta("Agent POS 01").
+    WithDescripcion("Sales agent point of sale").
+    WithNumeroContrato("CTR-2024-001").     // Contract number
+    WithFechaInicio(time.Now()).            // Contract start date
+    WithFechaFin(time.Now().AddDate(1, 0, 0)). // Contract end date
+    Build()
+
+comResp, err := operService.RegistroPuntoVentaComisionista(ctx, cfg, comReq)
+if err == nil && comResp.Body.Content.Respuesta.Transaccion {
+    fmt.Printf("Commission POS registered: %d\n", 
+        comResp.Body.Content.Respuesta.CodigoPuntoVenta)
+}
+```
+
+## Register Significant Events
+
+Report significant events that affect invoicing operations:
+
+```go
+eventoReq := models.Operaciones.NewRegistroEventoSignificativoRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoMotivoEvento(1).      // Event reason code
+    WithCodigoPuntoVenta(123).
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCuis("C2FC682B").
+    WithCufd("CUFD123").
+    WithDescripcion("Internet outage").  // Event description
+    WithFechaHoraInicioEvento(time.Now()).
+    WithNit(123456789).
+    Build()
+
+eventoResp, err := operService.RegistroEventoSignificativo(ctx, cfg, eventoReq)
+if err == nil && eventoResp.Body.Content.Respuesta.Transaccion {
+    fmt.Printf("Event registered: %d\n", 
+        eventoResp.Body.Content.Respuesta.CodigoRecepcionEventoSignificativo)
+}
+```
+
+<Info>
+Significant events include system outages, communication failures, or other issues that prevent normal invoicing operations.
+</Info>
+
+## Query Significant Events
+
+```go
+consultaEventoReq := models.Operaciones.NewConsultaEventoSignificativoRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCuis("C2FC682B").
+    WithNit(123456789).
+    Build()
+
+eventosResp, err := operService.ConsultaEventoSignificativo(ctx, cfg, consultaEventoReq)
+if err == nil && eventosResp.Body.Content.Respuesta.Transaccion {
+    for _, evento := range eventosResp.Body.Content.Respuesta.ListaEventos {
+        fmt.Printf("Event %d: %s (State: %d)\n", 
+            evento.CodigoRecepcionEventoSignificativo,
+            evento.Descripcion,
+            evento.EstadoEvento)
+    }
+}
+```
+
+## Close System Operations
+
+Temporarily close all operations for a system:
+
+```go
+cierreReq := models.Operaciones.NewCierreOperacionesSistemaRequest().
+    WithCodigoAmbiente(1).
+    WithCodigoModalidad(1).
+    WithCodigoPuntoVenta(0).
+    WithCodigoSistema("ABC123DEF").
+    WithCodigoSucursal(0).
+    WithCuis("C2FC682B").
+    WithNit(123456789).
+    Build()
+
+cierreResp, err := operService.CierreOperacionesSistema(ctx, cfg, cierreReq)
+if err == nil && cierreResp.Body.Content.Respuesta.Transaccion {
+    fmt.Println("System operations closed")
+}
+```
+
+## Complete Example
+
+```go
+package main
+
+import (
+    "context"
+    "fmt"
+    "log"
+
+    "github.com/ron86i/go-siat"
+    "github.com/ron86i/go-siat/pkg/config"
+    "github.com/ron86i/go-siat/pkg/models"
+)
+
+func main() {
+    s, err := siat.New("https://pilotosiatservicios.impuestos.gob.bo/v2", nil)
+    if err != nil {
+        log.Fatalf("Error: %v", err)
+    }
+
+    operService := s.Operaciones
+    ctx := context.Background()
+    cfg := config.Config{Token: "YOUR_API_TOKEN"}
+
+    // Query existing points of sale
+    consultaReq := models.Operaciones.NewConsultaPuntoVentaRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoSistema("ABC123DEF").
+        WithCuis("C2FC682B").
+        WithCodigoSucursal(0).
+        Build()
+
+    resp, err := operService.ConsultaPuntoVenta(ctx, cfg, consultaReq)
+    if err != nil {
+        log.Fatalf("Error querying: %v", err)
+    }
+
+    if resp != nil && resp.Body.Content.Respuesta.Transaccion {
+        fmt.Println("Existing points of sale:")
+        for _, pv := range resp.Body.Content.Respuesta.ListaPuntosVentas {
+            fmt.Printf("  [%d] %s (Type: %d)\n", 
+                pv.CodigoPuntoVenta, 
+                pv.NombrePuntoVenta, 
+                pv.CodigoTipoPuntoVenta)
+        }
+    }
+
+    // Register a new point of sale
+    registroReq := models.Operaciones.NewRegistroPuntoVentaRequest().
+        WithCodigoAmbiente(1).
+        WithNit(123456789).
+        WithCodigoSistema("ABC123DEF").
+        WithCuis("C2FC682B").
+        WithCodigoSucursal(0).
+        WithCodigoTipoPuntoVenta(2).
+        WithNombrePuntoVenta("Caja 01").
+        WithDescripcion("Main cashier for branch").
+        Build()
+
+    regResp, err := operService.RegistroPuntoVenta(ctx, cfg, registroReq)
+    if err == nil && regResp.Body.Content.Respuesta.Transaccion {
+        fmt.Printf("\nNew point of sale registered: %d\n", 
+            regResp.Body.Content.Respuesta.CodigoPuntoVenta)
+    }
+}
+```
+
+## Builder Pattern Reference
+
+### Common Parameters
+
+| Method | Description | Type |
+|--------|-------------|------|
+| `WithCodigoAmbiente()` | Environment (1=Production, 2=Pilot) | `int` |
+| `WithCodigoSistema()` | System identification code | `string` |
+| `WithCodigoSucursal()` | Branch office code | `int` |
+| `WithCuis()` | Valid CUIS code | `string` |
+| `WithNit()` | Taxpayer identification | `int64` |
+
+### Point of Sale Registration
+
+| Method | Description | Type |
+|--------|-------------|------|
+| `WithCodigoTipoPuntoVenta()` | Type of point of sale | `int` |
+| `WithNombrePuntoVenta()` | Descriptive name | `string` |
+| `WithDescripcion()` | Additional description | `string` |
+
+### Commission POS
+
+| Method | Description | Type |
+|--------|-------------|------|
+| `WithNitComisionista()` | Commissioner's NIT | `int64` |
+| `WithNumeroContrato()` | Contract number | `string` |
+| `WithFechaInicio()` | Contract start date | `time.Time` |
+| `WithFechaFin()` | Contract end date | `time.Time` |
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Point of Sale Management">
+    - Use descriptive names for points of sale (e.g., "Caja 01", "Mostrador Principal")
+    - Register separate POS for different cashiers or terminals
+    - Store POS codes in your database linked to physical locations
+    - Query POS list on system startup to validate configurations
+  </Accordion>
+
+  <Accordion title="Significant Events">
+    - Report events promptly when they occur
+    - Document the event description clearly for audit purposes
+    - Track event states to know when they're resolved
+    - Use events to explain gaps in invoice sequences
+  </Accordion>
+
+  <Accordion title="Error Handling">
+    - Validate POS existence before submitting invoices
+    - Cache POS information to avoid repeated queries
+    - Handle "POS not found" errors gracefully
+    - Implement retry logic for temporary failures
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Invoice Submission" icon="file-invoice" href="/guides/compra-venta">
+    Submit electronic invoices using registered POS
+  </Card>
+  <Card title="Error Handling" icon="triangle-exclamation" href="/guides/error-handling">
+    Handle errors and validate responses
+  </Card>
+</CardGroup>
